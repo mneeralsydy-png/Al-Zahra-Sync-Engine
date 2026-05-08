@@ -148,7 +148,7 @@ public class AdvancedBotHandler {
             }
 
             // Answer callback to remove loading state
-            answerCallback(caleback.getString("id"), "Done!");
+            answerCallback(callback.getString("id"), "Done!");
 
         } catch (Exception e) {
             e.printStackTrace();
