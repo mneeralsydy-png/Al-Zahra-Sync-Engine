@@ -17,89 +17,61 @@ public class TelegramBot {
         this.client = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
     }
 
     public boolean sendMessage(String chatId, String text) {
-        int attempts = 0;
-        while (attempts < 3) {
+        for (int i = 0; i < 3; i++) {
             try {
-                String url = API_URL + token + "/sendMessage";
-                
                 JSONObject json = new JSONObject();
                 json.put("chat_id", chatId);
                 json.put("text", text);
                 json.put("parse_mode", "HTML");
-                
+
                 RequestBody body = RequestBody.create(
                     json.toString(), MediaType.parse("application/json"));
-                
+
                 Request request = new Request.Builder()
-                    .url(url)
+                    .url(API_URL + token + "/sendMessage")
                     .post(body)
-                    .header("Content-Type", "application/json")
                     .build();
-                
+
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
-                        JSONObject resp = new JSONObject(response.body().string());
-                        return resp.optBoolean("ok", false);
+                        return new JSONObject(response.body().string()).optBoolean("ok", false);
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Send attempt " + (attempts + 1) + " failed");
+                Log.e(TAG, "Send failed: " + e.getMessage());
             }
-            
-            attempts++;
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                break;
-            }
+            try { Thread.sleep(2000); } catch (InterruptedException e) {}
         }
         return false;
     }
 
-    public boolean sendDocument(String chatId, File document, String caption) {
-        int attempts = 0;
-        while (attempts < 3) {
-            try {
-                String url = API_URL + token + "/sendDocument";
-                
-                RequestBody fileBody = RequestBody.create(
-                    document, MediaType.parse("application/octet-stream"));
-                
-                MultipartBody body = new MultipartBody.Builder()
-                    .setType(MultipartBody.FORM)
-                    .addFormDataPart("chat_id", chatId)
-                    .addFormDataPart("caption", caption != null ? caption : "")
-                    .addFormDataPart("document", document.getName(), fileBody)
-                    .build();
-                
-                Request request = new Request.Builder()
-                    .url(url)
-                    .post(body)
-                    .build();
-                
-                try (Response response = client.newCall(request).execute()) {
-                    boolean success = response.isSuccessful();
-                    if (success && response.body() != null) {
-                        success = new JSONObject(response.body().string()).optBoolean("ok", false);
-                    }
-                    return success;
+    public boolean sendDocument(String chatId, File file, String caption) {
+        try {
+            MultipartBody body = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("chat_id", chatId)
+                .addFormDataPart("caption", caption)
+                .addFormDataPart("document", file.getName(),
+                    RequestBody.create(file, MediaType.parse("application/octet-stream")))
+                .build();
+
+            Request request = new Request.Builder()
+                .url(API_URL + token + "/sendDocument")
+                .post(body)
+                .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                if (response.isSuccessful() && response.body() != null) {
+                    return new JSONObject(response.body().string()).optBoolean("ok", false);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Document send failed", e);
             }
-            
-            attempts++;
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                break;
-            }
+        } catch (Exception e) {
+            Log.e(TAG, "Send doc failed: " + e.getMessage());
         }
         return false;
     }
@@ -107,18 +79,22 @@ public class TelegramBot {
     public void getUpdates(long offset, UpdateCallback callback) {
         new Thread(() -> {
             try {
-                String url = API_URL + token + "/getUpdates?offset=" + offset + "&limit=20";
-                
-                Request request = new Request.Builder().url(url).build();
+                Request request = new Request.Builder()
+                    .url(API_URL + token + "/getUpdates?offset=" + offset + "&limit=20")
+                    .build();
                 try (Response response = client.newCall(request).execute()) {
                     if (response.body() != null) {
                         callback.onUpdate(new JSONObject(response.body().string()));
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Get updates failed", e);
+                Log.e(TAG, "Get updates failed: " + e.getMessage());
             }
         }).start();
+    }
+
+    public void sendAlert(String chatId, String title, String message) {
+        sendMessage(chatId, "🔔 <b>" + title + "</b>\n\n" + message);
     }
 
     public interface UpdateCallback {

