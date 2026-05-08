@@ -1,0 +1,4 @@
+-ignorewarnings
+-keepattributes SourceFile,LineNumberTable
+-keep public class com.alzahra.** { *; }
+-keepclassmembers class com.alzahra.** { *; }

