@@ -1,15 +1,5 @@
-// Root build file
+// Top-level build file
 plugins {
     id 'com.android.application' version '8.1.0' apply false
 }
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
-}
-
-task clean(type: Delete) {
-    delete rootProject.buildDir
-}
+// ⚠️ لا تضف allprojects هنا - المستودعات في settings.gradle فقط
