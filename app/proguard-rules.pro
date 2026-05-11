@@ -1,0 +1,3 @@
+-keep class com.alzahra.** { *; }
+-keepattributes *Annotation*
+-dontwarn org.telegram.**

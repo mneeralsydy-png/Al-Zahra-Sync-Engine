@@ -1,0 +1,34 @@
+{
+  "project_info": {
+    "project_number": "578676700425",
+    "firebase_url": "https://ahmed-samah-remo-default-rtdb.firebaseio.com",
+    "project_id": "ahmed-samah-remo",
+    "storage_bucket": "ahmed-samah-remo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:578676700425:android:bf42639a171b96012c3771",
+        "android_client_info": {
+          "package_name": "com.alzahra.sync"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAhH2cqrOhxYkT3NRJOoSyahFbz5u6Wq08"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        },
+        "database_service": {
+          "status": 2,
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
