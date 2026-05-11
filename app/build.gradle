@@ -31,24 +31,35 @@ android {
     }
     
     packagingOptions {
-        pickFirst '**/META-INF/DEPENDENCIES'
-        pickFirst '**/META-INF/LICENSE'
+        pickFirst '**/META-INF/LICENSE.md'
         pickFirst '**/META-INF/LICENSE.txt'
-        pickFirst '**/META-INF/NOTICE'
+        pickFirst '**/META-INF/LICENSE'
+        pickFirst '**/META-INF/NOTICE.md'
         pickFirst '**/META-INF/NOTICE.txt'
-        exclude 'META-INF/DEPENDENCIES'
-        exclude 'META-INF/LICENSE'
+        pickFirst '**/META-INF/NOTICE'
+        pickFirst '**/META-INF/DEPENDENCIES'
+        pickFirst '**/META-INF/INDEX.LIST'
+        pickFirst '**/META-INF/*.md'
+        pickFirst '**/META-INF/*.SF'
+        pickFirst '**/META-INF/*.DSA'
+        pickFirst '**/META-INF/*.RSA'
+        exclude 'META-INF/LICENSE.md'
         exclude 'META-INF/LICENSE.txt'
-        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/NOTICE.md'
         exclude 'META-INF/NOTICE.txt'
-        exclude 'META-INF/ASL2.0'
-        exclude 'META-INF/services/javax.annotation.processing.Processor'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/INDEX.LIST'
+        exclude 'META-INF/*.md'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/*.RSA'
     }
     
     configurations {
         all {
             exclude group: 'javax.inject', module: 'javax.inject'
-            exclude group: 'org.jetbrains.kotlinx', module: 'kotlinx-coroutines-debug'
         }
     }
 }
@@ -57,17 +68,9 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'com.google.code.gson:gson:2.10.1'
-    
     implementation('org.telegram:telegrambots:6.9.0') {
         exclude group: 'javax.inject', module: 'javax.inject'
-        exclude group: 'javax.xml.bind', module: 'jaxb-api'
     }
-    
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-database'
-    implementation 'com.google.firebase:firebase-analytics'
-    
-    implementation 'org.apache.httpcomponents:httpclient:4.5.14'
-    implementation 'org.apache.httpcomponents:httpmime:4.5.14'
-    implementation 'org.apache.httpcomponents:httpcore:4.4.16'
 }
