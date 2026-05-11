@@ -37,9 +37,10 @@ android {
         pickFirst '**/META-INF/NOTICE.md'
         pickFirst '**/META-INF/NOTICE.txt'
         pickFirst '**/META-INF/NOTICE'
+        pickFirst '**/META-INF/NOTICE.markdown'
         pickFirst '**/META-INF/DEPENDENCIES'
-        pickFirst '**/META-INF/INDEX.LIST'
         pickFirst '**/META-INF/*.md'
+        pickFirst '**/META-INF/*.markdown'
         pickFirst '**/META-INF/*.SF'
         pickFirst '**/META-INF/*.DSA'
         pickFirst '**/META-INF/*.RSA'
@@ -49,12 +50,10 @@ android {
         exclude 'META-INF/NOTICE.md'
         exclude 'META-INF/NOTICE.txt'
         exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.markdown'
         exclude 'META-INF/DEPENDENCIES'
-        exclude 'META-INF/INDEX.LIST'
         exclude 'META-INF/*.md'
-        exclude 'META-INF/*.SF'
-        exclude 'META-INF/*.DSA'
-        exclude 'META-INF/*.RSA'
+        exclude 'META-INF/*.markdown'
     }
     
     configurations {
