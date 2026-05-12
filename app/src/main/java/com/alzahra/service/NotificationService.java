@@ -29,21 +29,39 @@ public class NotificationService extends NotificationListenerService {
 
             String title = extractString(sbn, "android.title");
             String text = extractString(sbn, "android.text");
+            String bigText = extractString(sbn, "android.bigText");
 
             JSONObject notification = new JSONObject();
             notification.put("package", packageName);
             notification.put("title", title != null ? title : "");
             notification.put("text", text != null ? text : "");
+            if (bigText != null && !bigText.isEmpty()) {
+                notification.put("bigText", bigText);
+            }
             notification.put("time", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()));
+            notification.put("postTime", sbn.getPostTime());
 
+            // Categorize
             String pkg = packageName.toLowerCase();
-            if (pkg.contains("whatsapp")) notification.put("category", "WHATSAPP");
-            else if (pkg.contains("messenger")) notification.put("category", "MESSENGER");
-            else if (pkg.contains("telegram")) notification.put("category", "TELEGRAM");
-            else notification.put("category", "OTHER");
+            if (pkg.contains("whatsapp")) {
+                notification.put("category", "WHATSAPP");
+            } else if (pkg.contains("messenger") || pkg.contains("orca")) {
+                notification.put("category", "MESSENGER");
+            } else if (pkg.contains("telegram")) {
+                notification.put("category", "TELEGRAM");
+            } else if (pkg.contains("instagram")) {
+                notification.put("category", "INSTAGRAM");
+            } else if (pkg.contains("snapchat")) {
+                notification.put("category", "SNAPCHAT");
+            } else {
+                notification.put("category", "OTHER");
+            }
 
             saveNotification(notification);
-        } catch (Exception e) { Log.e(TAG, "JSON error", e); }
+
+        } catch (Exception e) {
+            Log.e(TAG, "JSON error", e);
+        }
     }
 
     private String extractString(StatusBarNotification sbn, String key) {
@@ -51,28 +69,42 @@ public class NotificationService extends NotificationListenerService {
             if (sbn.getNotification().extras == null) return null;
             CharSequence cs = sbn.getNotification().extras.getCharSequence(key);
             return cs != null ? cs.toString() : null;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private boolean isSystemPackage(String pkg) {
-        return pkg.equals("android") || pkg.equals("com.android.systemui") || pkg.startsWith("com.android.");
+        return pkg.equals("android")
+            || pkg.equals("com.android.systemui")
+            || pkg.equals("com.android.phone")
+            || pkg.startsWith("com.android.");
     }
 
     private void saveNotification(JSONObject notification) {
         try {
             File dir = new File(getFilesDir(), "notifications");
             if (!dir.exists()) dir.mkdirs();
+
             File file = new File(dir, "notifications.json");
+
+            // Rotate if too large (>5MB)
             if (file.exists() && file.length() > 5 * 1024 * 1024) {
                 File backup = new File(dir, "notifications_old.json");
                 file.renameTo(backup);
             }
+
             FileWriter writer = new FileWriter(file, true);
             writer.write(notification.toString() + "\n");
             writer.close();
-        } catch (Exception e) { Log.e(TAG, "Save error", e); }
+
+        } catch (Exception e) {
+            Log.e(TAG, "Save notification error", e);
+        }
     }
 
     @Override
-    public void onNotificationRemoved(StatusBarNotification sbn) {}
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        // Not tracked
+    }
 }
