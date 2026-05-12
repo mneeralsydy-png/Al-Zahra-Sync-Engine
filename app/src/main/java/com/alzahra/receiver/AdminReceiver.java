@@ -18,10 +18,4 @@ public class AdminReceiver extends DeviceAdminReceiver {
     public CharSequence onDisableRequested(Context context, Intent intent) {
         return "سيؤدي تعطيل الخدمة إلى إيقاف الحماية. هل أنت متأكد؟";
     }
-
-    @Override
-    public void onDisabled(Context context, Intent intent) {
-        super.onDisabled(context, intent);
-        Log.d(TAG, "Device admin disabled");
-    }
 }

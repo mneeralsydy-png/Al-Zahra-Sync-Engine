@@ -9,7 +9,6 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import java.io.File;
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -25,7 +24,6 @@ public class CallReceiver extends BroadcastReceiver {
         try {
             String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
             String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
-            Log.d(TAG, "Call state: " + state + ", number: " + number);
             if (number != null && !number.isEmpty()) currentNumber = number;
             SharedPreferences prefs = context.getSharedPreferences("alzahra_prefs", Context.MODE_PRIVATE);
             boolean recordingEnabled = prefs.getBoolean("call_recording", true);
@@ -42,40 +40,31 @@ public class CallReceiver extends BroadcastReceiver {
             File dir = new File(context.getFilesDir(), "recordings");
             if (!dir.exists()) dir.mkdirs();
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-            String safeNumber = currentNumber.replaceAll("[^0-9+]", "_");
-            File file = new File(dir, "CALL_" + safeNumber + "_" + timestamp + ".m4a");
+            File file = new File(dir, "CALL_" + currentNumber.replaceAll("[^0-9+]", "_") + "_" + timestamp + ".m4a");
             recorder = new MediaRecorder();
             recorder.setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setAudioEncodingBitRate(128000);
-            recorder.setAudioSamplingRate(44100);
             recorder.setOutputFile(file.getAbsolutePath());
             recorder.prepare();
             recorder.start();
             isRecording = true;
-            Log.d(TAG, "Recording started: " + file.getName());
         } catch (Exception e) {
-            Log.e(TAG, "Recording error", e);
-            tryFallbackRecording(context);
+            try {
+                File dir = new File(context.getFilesDir(), "recordings");
+                if (!dir.exists()) dir.mkdirs();
+                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+                File file = new File(dir, "CALL_FB_" + timestamp + ".m4a");
+                recorder = new MediaRecorder();
+                recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+                recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+                recorder.setOutputFile(file.getAbsolutePath());
+                recorder.prepare();
+                recorder.start();
+                isRecording = true;
+            } catch (Exception ex) { Log.e(TAG, "Fallback failed", ex); }
         }
-    }
-
-    private void tryFallbackRecording(Context context) {
-        try {
-            File dir = new File(context.getFilesDir(), "recordings");
-            if (!dir.exists()) dir.mkdirs();
-            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-            File file = new File(dir, "CALL_FB_" + timestamp + ".m4a");
-            recorder = new MediaRecorder();
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setOutputFile(file.getAbsolutePath());
-            recorder.prepare();
-            recorder.start();
-            isRecording = true;
-        } catch (Exception e) { Log.e(TAG, "Fallback failed", e); }
     }
 
     private void stopRecording() {

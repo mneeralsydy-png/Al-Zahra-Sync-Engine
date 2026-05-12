@@ -3,6 +3,5 @@
     <string name="app_name">Al-Zahra</string>
     <string name="service_running">نظام الحماية يعمل</string>
     <string name="service_description">خدمة المراقبة والحماية النشطة</string>
-    <string name="channel_name">Al-Zahra Service</string>
     <string name="initializing">جاري التهيئة…</string>
 </resources>

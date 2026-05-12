@@ -1,7 +1,6 @@
 package com.alzahra.collector;
 
 import android.content.Context;
-import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -12,9 +11,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 
 public class NotificationCollector {
-    private static final String TAG = "NotificationCollector";
     private final Context context;
-
     public NotificationCollector(Context context) { this.context = context; }
 
     public File export() {
@@ -39,8 +36,7 @@ public class NotificationCollector {
             writer.write(notifications.toString(2));
             writer.close();
             sourceFile.delete();
-            Log.d(TAG, "Notifications exported: " + count);
             return file;
-        } catch (Exception e) { Log.e(TAG, "Notification export error", e); return null; }
+        } catch (Exception e) { e.printStackTrace(); return null; }
     }
 }

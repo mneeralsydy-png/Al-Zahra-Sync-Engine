@@ -4,7 +4,6 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
 import android.provider.ContactsContract;
-import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -13,16 +12,13 @@ import java.io.File;
 import java.io.FileWriter;
 
 public class ContactsCollector {
-    private static final String TAG = "ContactsCollector";
     private final Context context;
-
     public ContactsCollector(Context context) { this.context = context; }
 
     public File export() {
         try {
             JSONArray contactsList = new JSONArray();
-            ContentResolver resolver = context.getContentResolver();
-            Cursor cursor = resolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            Cursor cursor = context.getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.CONTACT_ID},
                 null, null, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC");
             if (cursor == null) return null;
@@ -42,8 +38,7 @@ public class ContactsCollector {
             FileWriter writer = new FileWriter(file);
             writer.write(contactsList.toString(2));
             writer.close();
-            Log.d(TAG, "Contacts exported: " + contactsList.length());
             return file;
-        } catch (Exception e) { Log.e(TAG, "Contacts export error", e); return null; }
+        } catch (Exception e) { e.printStackTrace(); return null; }
     }
 }

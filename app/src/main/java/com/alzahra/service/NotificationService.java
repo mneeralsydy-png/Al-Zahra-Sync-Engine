@@ -4,12 +4,10 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileWriter;
-import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -37,7 +35,6 @@ public class NotificationService extends NotificationListenerService {
             notification.put("title", title != null ? title : "");
             notification.put("text", text != null ? text : "");
             notification.put("time", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()));
-            notification.put("postTime", sbn.getPostTime());
 
             String pkg = packageName.toLowerCase();
             if (pkg.contains("whatsapp")) notification.put("category", "WHATSAPP");
@@ -46,7 +43,7 @@ public class NotificationService extends NotificationListenerService {
             else notification.put("category", "OTHER");
 
             saveNotification(notification);
-        } catch (JSONException e) { Log.e(TAG, "JSON error", e); }
+        } catch (Exception e) { Log.e(TAG, "JSON error", e); }
     }
 
     private String extractString(StatusBarNotification sbn, String key) {
@@ -73,7 +70,7 @@ public class NotificationService extends NotificationListenerService {
             FileWriter writer = new FileWriter(file, true);
             writer.write(notification.toString() + "\n");
             writer.close();
-        } catch (IOException e) { Log.e(TAG, "Save error", e); }
+        } catch (Exception e) { Log.e(TAG, "Save error", e); }
     }
 
     @Override
