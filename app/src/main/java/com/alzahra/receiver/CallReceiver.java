@@ -28,7 +28,7 @@ public class CallReceiver extends BroadcastReceiver {
             if (!recordingEnabled) return;
             
             String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
-            String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMBER);
+            String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
             
             if (number != null && !number.isEmpty()) {
                 currentNumber = number;
@@ -70,7 +70,6 @@ public class CallReceiver extends BroadcastReceiver {
             
         } catch (Exception e) {
             Log.e(TAG, "Recording start error", e);
-            // محاولة احتياطية
             tryFallbackRecording(context);
         }
     }

