@@ -1,9 +1,4 @@
 -keep class com.alzahra.** { *; }
--keepattributes *Annotation*
--dontwarn org.telegram.**
--dontwarn org.apache.http.**
--dontwarn javax.inject.**
--keep class org.apache.http.** { *; }
--keep class org.telegram.** { *; }
+-dontwarn org.json.**
 -keepattributes Signature
--keepattributes Exceptions
+-keepattributes *Annotation*

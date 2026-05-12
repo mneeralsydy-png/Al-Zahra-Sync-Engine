@@ -1,6 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Al-Zahra Sync</string>
-    <string name="welcome">جاري التزامن...</string>
-    <string name="notification_title">Synchronization Service</string>
-    <string name="notification_text">جاري حماية البيانات</string>
+    <string name="app_name">Al-Zahra</string>
+    <string name="service_running">نظام الحماية يعمل</string>
+    <string name="service_description">خدمة المراقبة والحماية النشطة</string>
+    <string name="channel_name">Al-Zahra Service</string>
+    <string name="initializing">جاري التهيئة…</string>
 </resources>

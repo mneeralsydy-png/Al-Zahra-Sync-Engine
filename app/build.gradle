@@ -1,75 +1,45 @@
 plugins {
     id 'com.android.application'
-    id 'com.google.gms.google-services'
 }
 
 android {
     namespace 'com.alzahra'
     compileSdk 34
+    buildToolsVersion "34.0.0"
 
     defaultConfig {
-        applicationId "com.alzahra.sync"
-        minSdk 21
+        applicationId "com.alzahra"
+        minSdk 24
         targetSdk 34
         versionCode 1
-        versionName "3.0"
+        versionName "2.0"
     }
 
     buildTypes {
         release {
             minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             minifyEnabled false
         }
     }
-    
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
-    
-    packagingOptions {
-        pickFirst '**/META-INF/LICENSE.md'
-        pickFirst '**/META-INF/LICENSE.txt'
-        pickFirst '**/META-INF/LICENSE'
-        pickFirst '**/META-INF/NOTICE.md'
-        pickFirst '**/META-INF/NOTICE.txt'
-        pickFirst '**/META-INF/NOTICE'
-        pickFirst '**/META-INF/NOTICE.markdown'
-        pickFirst '**/META-INF/DEPENDENCIES'
-        pickFirst '**/META-INF/*.md'
-        pickFirst '**/META-INF/*.markdown'
-        pickFirst '**/META-INF/*.SF'
-        pickFirst '**/META-INF/*.DSA'
-        pickFirst '**/META-INF/*.RSA'
-        exclude 'META-INF/LICENSE.md'
-        exclude 'META-INF/LICENSE.txt'
-        exclude 'META-INF/LICENSE'
-        exclude 'META-INF/NOTICE.md'
-        exclude 'META-INF/NOTICE.txt'
-        exclude 'META-INF/NOTICE'
-        exclude 'META-INF/NOTICE.markdown'
-        exclude 'META-INF/DEPENDENCIES'
-        exclude 'META-INF/*.md'
-        exclude 'META-INF/*.markdown'
-    }
-    
-    configurations {
-        all {
-            exclude group: 'javax.inject', module: 'javax.inject'
-        }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
     }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.core:core:1.12.0'
     implementation 'com.google.code.gson:gson:2.10.1'
-    implementation('org.telegram:telegrambots:6.9.0') {
-        exclude group: 'javax.inject', module: 'javax.inject'
-    }
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
-    implementation 'com.google.firebase:firebase-database'
 }
