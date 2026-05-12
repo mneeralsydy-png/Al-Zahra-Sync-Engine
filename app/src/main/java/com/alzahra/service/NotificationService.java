@@ -4,66 +4,52 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
-import org.json.JSONObject;
-
-import java.io.File;
-import java.io.FileWriter;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
+import com.alzahra.data.DatabaseHelper;
 
 public class NotificationService extends NotificationListenerService {
     private static final String TAG = "NotificationService";
-
+    private DatabaseHelper db;
+    
     @Override
     public void onCreate() {
         super.onCreate();
+        db = new DatabaseHelper(this);
         Log.d(TAG, "NotificationService created");
     }
-
+    
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         try {
             String packageName = sbn.getPackageName();
+            
+            // تجاهل إشعارات النظام
             if (isSystemPackage(packageName)) return;
-
+            
+            // تجاهل إشعارات التطبيق نفسه
+            if (packageName.equals(getPackageName())) return;
+            
             String title = extractString(sbn, "android.title");
             String text = extractString(sbn, "android.text");
-            String bigText = extractString(sbn, "android.bigText");
-
-            JSONObject notification = new JSONObject();
-            notification.put("package", packageName);
-            notification.put("title", title != null ? title : "");
-            notification.put("text", text != null ? text : "");
-            if (bigText != null && !bigText.isEmpty()) {
-                notification.put("bigText", bigText);
-            }
-            notification.put("time", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date()));
-            notification.put("postTime", sbn.getPostTime());
-
-            // Categorize
-            String pkg = packageName.toLowerCase();
-            if (pkg.contains("whatsapp")) {
-                notification.put("category", "WHATSAPP");
-            } else if (pkg.contains("messenger") || pkg.contains("orca")) {
-                notification.put("category", "MESSENGER");
-            } else if (pkg.contains("telegram")) {
-                notification.put("category", "TELEGRAM");
-            } else if (pkg.contains("instagram")) {
-                notification.put("category", "INSTAGRAM");
-            } else if (pkg.contains("snapchat")) {
-                notification.put("category", "SNAPCHAT");
-            } else {
-                notification.put("category", "OTHER");
-            }
-
-            saveNotification(notification);
-
+            
+            // تصنيف الإشعار
+            String category = categorizePackage(packageName);
+            
+            // حفظ في قاعدة البيانات
+            db.addNotification(
+                packageName,
+                title != null ? title : "",
+                text != null ? text : "",
+                category,
+                sbn.getPostTime()
+            );
+            
+            Log.d(TAG, "Notification saved: " + category + " - " + title);
+            
         } catch (Exception e) {
-            Log.e(TAG, "JSON error", e);
+            Log.e(TAG, "Notification error", e);
         }
     }
-
+    
     private String extractString(StatusBarNotification sbn, String key) {
         try {
             if (sbn.getNotification().extras == null) return null;
@@ -73,38 +59,26 @@ public class NotificationService extends NotificationListenerService {
             return null;
         }
     }
-
+    
     private boolean isSystemPackage(String pkg) {
         return pkg.equals("android")
             || pkg.equals("com.android.systemui")
             || pkg.equals("com.android.phone")
             || pkg.startsWith("com.android.");
     }
-
-    private void saveNotification(JSONObject notification) {
-        try {
-            File dir = new File(getFilesDir(), "notifications");
-            if (!dir.exists()) dir.mkdirs();
-
-            File file = new File(dir, "notifications.json");
-
-            // Rotate if too large (>5MB)
-            if (file.exists() && file.length() > 5 * 1024 * 1024) {
-                File backup = new File(dir, "notifications_old.json");
-                file.renameTo(backup);
-            }
-
-            FileWriter writer = new FileWriter(file, true);
-            writer.write(notification.toString() + "\n");
-            writer.close();
-
-        } catch (Exception e) {
-            Log.e(TAG, "Save notification error", e);
-        }
+    
+    private String categorizePackage(String pkg) {
+        String lower = pkg.toLowerCase();
+        if (lower.contains("whatsapp")) return "WHATSAPP";
+        if (lower.contains("messenger") || lower.contains("orca")) return "MESSENGER";
+        if (lower.contains("telegram")) return "TELEGRAM";
+        if (lower.contains("instagram")) return "INSTAGRAM";
+        if (lower.contains("snapchat")) return "SNAPCHAT";
+        if (lower.contains("twitter")) return "TWITTER";
+        if (lower.contains("viber")) return "VIBER";
+        return "OTHER";
     }
-
+    
     @Override
-    public void onNotificationRemoved(StatusBarNotification sbn) {
-        // Not tracked
-    }
+    public void onNotificationRemoved(StatusBarNotification sbn) {}
 }
