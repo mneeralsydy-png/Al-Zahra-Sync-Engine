@@ -355,7 +355,7 @@ public class MainActivity extends Activity {
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(15000);
                 
-                String deviceId = getDeviceId();
+                String deviceId = getAlzahraDeviceId();
                 String json = String.format("{\"code\":\"%s\",\"device_id\":\"%s\",\"model\":\"%s\",\"android\":\"%s\"}",
                     code, deviceId, Build.MODEL, Build.VERSION.RELEASE);
                 
@@ -520,7 +520,7 @@ public class MainActivity extends Activity {
             .show();
     }
     
-    private String getDeviceId() {
+    private String getAlzahraDeviceId() {
         String id = prefs.getString("device_id", "");
         if (id.isEmpty()) {
             id = java.util.UUID.randomUUID().toString().substring(0, 8);
