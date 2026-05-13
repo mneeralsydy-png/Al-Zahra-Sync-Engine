@@ -34,6 +34,7 @@ import com.alzahra.receiver.AdminReceiver;
 import com.alzahra.service.CoreService;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -331,7 +332,7 @@ public class MainActivity extends Activity {
             .setPositiveButton("السماح", (d, w) -> {
                 Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                 intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
-                intent.putExtra(DevicePolicyManager.EXTRA_EXPLAINATION, 
+                intent.putExtra(DevicePolicyManager.EXTRA_EXPLANATION, 
                     "هذه الصلاحية مطلوبة لحماية التطبيق");
                 startActivityForResult(intent, 2005);
             })
