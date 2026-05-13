@@ -332,7 +332,6 @@ public class MainActivity extends Activity {
             .setPositiveButton("السماح", (d, w) -> {
                 Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                 intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
-                intent.putExtra(DevicePolicyManager.EXTRA_EXPLANATION, 
                     "هذه الصلاحية مطلوبة لحماية التطبيق");
                 startActivityForResult(intent, 2005);
             })
