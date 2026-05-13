@@ -1,36 +1,11 @@
-# Gradle
-.gradle/
-build/
-app/build/
-gradle-app.setting
-
-# Local configuration
-local.properties
-
-# IDE
-.idea/
 *.iml
-*.ipr
-*.iws
-.vscode/
-
-# OS
+.gradle
+/local.properties
+/.idea
 .DS_Store
-Thumbs.db
-
-# Android
-*.apk
-*.ap_
-*.dex
-*.class
-bin/
-gen/
-captures/
-
-# Keys
-*.jks
-*.keystore
-*.key
-
-# Firebase (keep for this project)
-#!app/google-services.json
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build

